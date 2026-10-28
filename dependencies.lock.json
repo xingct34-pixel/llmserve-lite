@@ -1,0 +1,20 @@
+{
+  "llama.cpp": {
+    "tag": "b6500",
+    "commit": "a7a98e0fffed794396b3fbad4dcdbbc184963645",
+    "url": "https://codeload.github.com/ggml-org/llama.cpp/tar.gz/refs/tags/b6500",
+    "archive_sha256": "f2a188b194f25178460eecda7a7619b34d0b53421588faa2e6f0287a96674f28"
+  },
+  "cpp-httplib": {
+    "version": "v0.18.1",
+    "url": "https://codeload.github.com/yhirose/cpp-httplib/tar.gz/refs/tags/v0.18.1",
+    "archive_sha256": "405abd8170f2a446fc8612ac635d0db5947c0d2e156e32603403a4496255ff00",
+    "header_sha256": "f870541e065de607c8a7f64fc8743b475cd1388fff5238afa8841f75dcbf2b89"
+  },
+  "nlohmann/json": {
+    "version": "v3.11.3",
+    "git_blob_sha": "8b72ea6539f40e4e3f7762d17e30c67f2a8308ed",
+    "url": "https://api.github.com/repos/nlohmann/json/contents/single_include/nlohmann/json.hpp?ref=v3.11.3",
+    "header_sha256": "9bea4c8066ef4a1c206b2be5a36302f8926f7fdc6087af5d20b417d0cf103ea6"
+  }
+}

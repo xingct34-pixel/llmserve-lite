@@ -1,0 +1,1 @@
+{"engine":"mock","host":"127.0.0.1","port":8080,"threads":4,"context_tokens":1024,"max_output_tokens":128,"queue_capacity":4,"http_threads":8,"event_capacity":16,"queue_timeout_ms":30000,"generation_timeout_ms":120000,"backpressure_timeout_ms":2000,"mock_delay_ms":20}

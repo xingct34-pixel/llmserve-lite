@@ -1,0 +1,70 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "mock",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/mock",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "cpu",
+      "inherits": "mock",
+      "binaryDir": "${sourceDir}/build/cpu",
+      "cacheVariables": {
+        "LLMSERVE_WITH_LLAMA": "ON"
+      }
+    },
+    {
+      "name": "sanitize",
+      "inherits": "mock",
+      "binaryDir": "${sourceDir}/build/sanitize",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LLMSERVE_SANITIZE": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "mock",
+      "configurePreset": "mock",
+      "jobs": 2
+    },
+    {
+      "name": "cpu",
+      "configurePreset": "cpu",
+      "jobs": 2
+    },
+    {
+      "name": "sanitize",
+      "configurePreset": "sanitize",
+      "jobs": 1
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "mock",
+      "configurePreset": "mock",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "cpu",
+      "configurePreset": "cpu",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "sanitize",
+      "configurePreset": "sanitize",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
