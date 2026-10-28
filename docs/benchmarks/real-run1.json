@@ -1,0 +1,515 @@
+{
+  "engine": "llama",
+  "backend": "CPU",
+  "config": {
+    "engine": "llama",
+    "host": "127.0.0.1",
+    "port": 36503,
+    "model_path": "models/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+    "threads": 4,
+    "context_tokens": 1024,
+    "max_output_tokens": 128,
+    "queue_capacity": 4,
+    "http_threads": 8,
+    "event_capacity": 16,
+    "queue_timeout_ms": 30000,
+    "generation_timeout_ms": 120000,
+    "backpressure_timeout_ms": 2000,
+    "mock_delay_ms": 0
+  },
+  "model": {
+    "repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+    "filename": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+    "revision": "9217f5db79a29953eb74d5343926648285ec7e67",
+    "expected_bytes": 491400032,
+    "expected_sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+    "actual_bytes": 491400032,
+    "actual_sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+    "license": "apache-2.0",
+    "status": "verified",
+    "acquisition": "User browser download; checked against official pinned metadata",
+    "verification": "Windows source SHA-256, WSL source SHA-256 and copied WSL file SHA-256 match official LFS SHA-256",
+    "full_file_sha256_verified": true
+  },
+  "binary_sha256": "441b5767466b6b572cce00e3144d263f92695f9d478d66eb49d1951616fe3676",
+  "prompt": "你好，请用一句话介绍你自己。",
+  "max_tokens": 32,
+  "requests": [
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 202.256000000002,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 667.3854,
+        "execution_ms": 864.3168,
+        "first_token_ms": 201.071,
+        "prefill_ms": 196.8445,
+        "queue_ms": 0.0854
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 20.97738428200557,
+      "latency_ms": 865.6795999999999,
+      "index": 0,
+      "phase": "cold_first"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 280.95659999999964,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 1156.9919,
+        "execution_ms": 1430.9922,
+        "first_token_ms": 275.7197,
+        "prefill_ms": 273.8465,
+        "queue_ms": 0.1944
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 12.100344004136936,
+      "latency_ms": 1436.0464999999997,
+      "index": 1,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 202.50810000000286,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 1605.4853,
+        "execution_ms": 1806.4503,
+        "first_token_ms": 201.668,
+        "prefill_ms": 200.8761,
+        "queue_ms": 0.0455
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 8.720104755864162,
+      "latency_ms": 1807.325800000001,
+      "index": 2,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 470.92750000000194,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 671.7583,
+        "execution_ms": 1130.6251,
+        "first_token_ms": 459.3663,
+        "prefill_ms": 458.7874,
+        "queue_ms": 0.0536
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 20.840829208958045,
+      "latency_ms": 1141.9435999999976,
+      "index": 3,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 138.741330000002,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 533.374389,
+        "execution_ms": 670.929624,
+        "first_token_ms": 137.978132,
+        "prefill_ms": 137.496635,
+        "queue_ms": 0.0416
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 26.24797944694716,
+      "latency_ms": 671.7158220000031,
+      "index": 4,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 121.72309000000325,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 562.40652,
+        "execution_ms": 682.651018,
+        "first_token_ms": 120.688796,
+        "prefill_ms": 120.185899,
+        "queue_ms": 0.0497
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 24.89302577786616,
+      "latency_ms": 683.6110130000037,
+      "index": 5,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 146.85934399999923,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 519.792269,
+        "execution_ms": 665.122921,
+        "first_token_ms": 145.83535,
+        "prefill_ms": 145.274953,
+        "queue_ms": 0.043399
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 26.933836524605944,
+      "latency_ms": 666.064016,
+      "index": 6,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 125.88086600000281,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 531.057703,
+        "execution_ms": 652.798493,
+        "first_token_ms": 125.11357,
+        "prefill_ms": 121.66599,
+        "queue_ms": 0.0133
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 26.36248362637911,
+      "latency_ms": 653.8152870000005,
+      "index": 7,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 142.30317000000525,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 517.980579,
+        "execution_ms": 658.767058,
+        "first_token_ms": 141.343476,
+        "prefill_ms": 140.729279,
+        "queue_ms": 0.0487
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 27.028040369830155,
+      "latency_ms": 659.6609529999995,
+      "index": 8,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 154.45429900000107,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 600.741396,
+        "execution_ms": 753.395306,
+        "first_token_ms": 153.539904,
+        "prefill_ms": 152.579811,
+        "queue_ms": 0.0367
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 23.30453684933009,
+      "latency_ms": 754.1113019999983,
+      "index": 9,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 123.79337800000201,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 543.50363,
+        "execution_ms": 663.384831,
+        "first_token_ms": 122.486185,
+        "prefill_ms": 119.807801,
+        "queue_ms": 0.0451
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 25.758797599935072,
+      "latency_ms": 664.1642270000006,
+      "index": 10,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 123.66627899999827,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 546.741911,
+        "execution_ms": 669.155398,
+        "first_token_ms": 122.800384,
+        "prefill_ms": 122.361587,
+        "queue_ms": 0.038
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 25.606231602757088,
+      "latency_ms": 669.8780929999941,
+      "index": 11,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 133.10692400000335,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 529.223614,
+        "execution_ms": 661.156745,
+        "first_token_ms": 132.329829,
+        "prefill_ms": 131.874531,
+        "queue_ms": 0.064399
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 26.45384602962936,
+      "latency_ms": 661.9671389999979,
+      "index": 12,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 131.79113099999995,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 555.970857,
+        "execution_ms": 686.569296,
+        "first_token_ms": 131.078236,
+        "prefill_ms": 130.546139,
+        "queue_ms": 0.0393
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 25.181175998223228,
+      "latency_ms": 687.2082920000012,
+      "index": 13,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 129.07394700000197,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 564.16881,
+        "execution_ms": 691.468967,
+        "first_token_ms": 128.116552,
+        "prefill_ms": 127.238557,
+        "queue_ms": 0.0145
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 24.815267614670155,
+      "latency_ms": 692.2469619999987,
+      "index": 14,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 140.54188000000067,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 599.039274,
+        "execution_ms": 738.39186,
+        "first_token_ms": 139.763284,
+        "prefill_ms": 139.280888,
+        "queue_ms": 0.0424
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 23.370754819658117,
+      "latency_ms": 739.1140559999983,
+      "index": 15,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 141.67402700000054,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 571.372081,
+        "execution_ms": 709.750825,
+        "first_token_ms": 139.870236,
+        "prefill_ms": 138.283245,
+        "queue_ms": 0.0427
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 24.502422266586034,
+      "latency_ms": 710.6631199999995,
+      "index": 16,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 172.13875999999573,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 1317.757706,
+        "execution_ms": 1488.503974,
+        "first_token_ms": 171.235765,
+        "prefill_ms": 170.672868,
+        "queue_ms": 0.041
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 10.624107858565617,
+      "latency_ms": 1489.6223669999954,
+      "index": 17,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 244.1541669999978,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 660.628694,
+        "execution_ms": 903.072469,
+        "first_token_ms": 242.977973,
+        "prefill_ms": 242.354276,
+        "queue_ms": 0.0533
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 21.19193448173173,
+      "latency_ms": 904.1806640000018,
+      "index": 18,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 161.9977159999948,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 1486.821283,
+        "execution_ms": 1645.967614,
+        "first_token_ms": 159.692628,
+        "prefill_ms": 159.035832,
+        "queue_ms": 0.269799
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 9.416061069392157,
+      "latency_ms": 1647.8709039999942,
+      "index": 19,
+      "phase": "warm_repeat"
+    },
+    {
+      "success": true,
+      "http_status": 200,
+      "ttft_ms": 291.3808089999961,
+      "text": "我是来自人工智能领域的专家，专注于自然语言处理和机器学习。",
+      "usage": {
+        "completion_tokens": 14,
+        "prompt_tokens": 15
+      },
+      "timings": {
+        "decode_ms": 1340.055684,
+        "execution_ms": 1621.957745,
+        "first_token_ms": 282.471358,
+        "prefill_ms": 281.834061,
+        "queue_ms": 0.0778
+      },
+      "finish_reason": "stop",
+      "decode_tokens_per_second": 10.44732705301521,
+      "latency_ms": 1630.7400970000003,
+      "index": 20,
+      "phase": "warm_repeat"
+    }
+  ],
+  "model_load_to_ready_ms": 8613.387475,
+  "summary": {
+    "successes": 21,
+    "failures": 0,
+    "warm_samples": 20,
+    "warm_ttft_p50_ms": 142.30317000000525,
+    "warm_ttft_p95_ms": 291.3808089999961,
+    "warm_decode_tokens_per_second_median": 24.658844940628093,
+    "peak_rss_kib": 576052,
+    "peak_process_swap_kib": 0
+  },
+  "exit_code": 0,
+  "measurement_note": "New process, OS page cache not cleared; single client; same fixed prompt; decode wall time includes sampling and callbacks.",
+  "sampled_min_wsl_memavailable_kib": 3352896
+}

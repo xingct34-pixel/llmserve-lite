@@ -1,0 +1,72 @@
+{
+  "engine": "mock",
+  "note": "Simulated pieces, not real model inference",
+  "groups": [
+    {
+      "concurrency": 1,
+      "wall_seconds": 1.691015374000017,
+      "successes": 24,
+      "rejected": 0,
+      "failures": 0,
+      "latency_p50_ms": 70.21036500009359,
+      "latency_p95_ms": 72.65554600007817,
+      "ttft_p50_ms": 3.036829999928159,
+      "ttft_p95_ms": 3.434801999901538,
+      "output_tokens_per_second": 454.1650015773259,
+      "success_requests_per_second": 14.192656299291434
+    },
+    {
+      "concurrency": 2,
+      "wall_seconds": 1.6958399449999888,
+      "successes": 24,
+      "rejected": 0,
+      "failures": 0,
+      "latency_p50_ms": 141.63701600000422,
+      "latency_p95_ms": 142.33455500016134,
+      "ttft_p50_ms": 72.86334799982797,
+      "ttft_p95_ms": 73.74309399983758,
+      "output_tokens_per_second": 452.8729272266346,
+      "success_requests_per_second": 14.152278975832331
+    },
+    {
+      "concurrency": 4,
+      "wall_seconds": 1.6719915300000139,
+      "successes": 24,
+      "rejected": 0,
+      "failures": 0,
+      "latency_p50_ms": 278.3216679999896,
+      "latency_p95_ms": 283.2418940001844,
+      "ttft_p50_ms": 212.00958300005368,
+      "ttft_p95_ms": 215.31014700030937,
+      "output_tokens_per_second": 459.33247042225963,
+      "success_requests_per_second": 14.354139700695614
+    },
+    {
+      "concurrency": 8,
+      "wall_seconds": 0.3432246409997788,
+      "successes": 5,
+      "rejected": 19,
+      "failures": 0,
+      "latency_p50_ms": 203.5343490001651,
+      "latency_p95_ms": 337.17013199975554,
+      "ttft_p50_ms": 138.2931279999866,
+      "ttft_p95_ms": 271.05722199985394,
+      "output_tokens_per_second": 466.1669964427266,
+      "success_requests_per_second": 14.567718638835206
+    }
+  ],
+  "soak": {
+    "engine": "mock",
+    "soak_seconds": 1800.1651665229997,
+    "requests": 7583,
+    "failures": 0,
+    "health_p95_ms": 0.9280700000999786,
+    "peak_rss_kib": 4860,
+    "rss_5_to_10min_median_kib": 4860.0,
+    "rss_last_5min_median_kib": 4860,
+    "rss_window_delta_kib": 0.0,
+    "max_process_swap_kib": 0,
+    "min_wsl_memavailable_kib": 3231308,
+    "binary_sha256": "e32d12d838c1049a1a8357c7675d026d1c7c805d22c0a034085e286fdedfa75b"
+  }
+}
