@@ -65,3 +65,8 @@ data: {"type":"error","request_id":"1","code":"generation_timeout","message":"ge
 `X-Request-ID` 在任务被接收后提供；请求 ID 进程内递增，不跨重启持久化。应用日志每条一行 JSON，含 timestamp_unix_ms、事件、请求 ID、终态与阶段耗时；llama.cpp 启动/加载诊断可能附带原生文本。`/metrics` 是 JSON 快照，不是 Prometheus exposition 格式；故障、取消、超时分开计数。
 
 默认 MockEngine 支持 `__error__` 和 `__error_after__` 两个特殊 prompt，用于注入开始前错误与第三个 delta 后的错误；真实 llama 引擎不会解释这些标记。
+
+
+## HTTP 状态计数
+
+`http_requests_started` 在 completions handler 开始时增加；`http_responses_logged` 与 `http_status_429/4xx/5xx` 来自 HTTP 库响应日志。它们与推理调度计数分开，覆盖已记录的接入层拒绝，但不保证覆盖所有底层连接失败。SSE 中途 error 不改变已发送的 HTTP 200。`completed` 是生成成功，不证明客户端收到全部内容；压测以客户端结果为准。

@@ -4,6 +4,16 @@
 
 **已完成真实 Qwen2.5-0.5B-Instruct Q4_K_M CPU 推理验收。** 真实性能、测试结果和测量边界见 [测试报告](docs/测试报告.md)；MockEngine 指标单独列出。
 
+## 本地 CPU 稳定版
+
+补齐真实 1/2/4/6 线程、长短输入、输出上限、并发、取消/超时和十分钟稳定性验证。最终证据见 [CPU 扩展验收](docs/CPU扩展验收.md)，原始短提示词测量保留为历史结果，不混作同一二进制或同一工作负载。
+
+```bash
+python3 bench/cpu_matrix.py --soak-seconds 600
+```
+
+[学习指南](docs/学习指南.md) 解释请求调用链、锁、资源所有权和测量口径。GitHub CI 自动运行不需要模型的 Mock/Sanitizer 检查；真实 CPU 测试依赖本地模型，不冒充云端测试已执行。当前未安装 Docker，未完成容器运行验收。
+
 ## 技术栈与架构
 
 - C++17、CMake、pthread，WSL2 Ubuntu 24.04 / GCC 13.3 / CMake 3.28 验证。

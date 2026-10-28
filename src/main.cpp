@@ -33,8 +33,26 @@ int main(int argc,char** argv) {
         std::atomic<int> handling{0};
         server.Get("/healthz",[&](const auto&,auto& res){reply(res,200,{{"status","ok"}});});
         server.Get("/readyz",[&](const auto&,auto& res){reply(res,interrupted?503:200,{{"ready",!interrupted}});});
-        server.Get("/metrics",[&](const auto&,auto& res){reply(res,200,scheduler.metrics());});
+
+        std::atomic<uint64_t> http_started{0},http_logged{0},http_429{0},http_4xx{0},http_5xx{0};
+        // HTTP status accounting is separate from inference completion accounting.
+        server.set_logger([&](const httplib::Request& req,const httplib::Response& res){
+            if(req.method!="POST"||req.path!="/v1/completions")return;
+            ++http_logged;if(res.status==429)++http_429;
+            if(res.status>=400&&res.status<500)++http_4xx;
+            if(res.status>=500)++http_5xx;
+        });
+        server.Get("/metrics",[&](const auto&,auto& res){
+            auto metrics=scheduler.metrics();
+            metrics["http_requests_started"]=http_started.load();
+            metrics["http_responses_logged"]=http_logged.load();
+            metrics["http_status_429"]=http_429.load();
+            metrics["http_status_4xx"]=http_4xx.load();
+            metrics["http_status_5xx"]=http_5xx.load();
+            reply(res,200,metrics);
+        });
         server.Post("/v1/completions",[&](const httplib::Request& req,httplib::Response& res){
+            ++http_started;
             bool owns_slot=false;
             std::shared_ptr<serve::Job> job;
             try {

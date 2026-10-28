@@ -77,20 +77,21 @@ def wait_metric(port, key, value):
 
 class HTTPTests(unittest.TestCase):
     def test_json_stream_and_validation(self):
-        with server(mock_delay_ms=3) as (port, _):
+        with server(mock_delay_ms=50) as (port, _):
             status, body = call(port, {'prompt': '你好', 'max_tokens': 8})
             result = json.loads(body)
             self.assertEqual((status, result['text']), (200, '你好，这是测试。'))
             self.assertEqual(result['usage']['completion_tokens'], 8)
             conn = http.client.HTTPConnection('127.0.0.1', port, timeout=8)
-            conn.request('POST', '/v1/completions', json.dumps({'prompt': 'hi', 'max_tokens': 8, 'stream': True}))
+            conn.request('POST', '/v1/completions', json.dumps({'prompt': 'hi', 'max_tokens': 32, 'stream': True}))
             response = conn.getresponse()
             self.assertEqual(response.status, 200)
             start = time.monotonic()
             first = response.readline().decode('utf-8')
             self.assertIn('delta', first)
+            # Observe generation still active after receiving the first delta.
+            self.assertEqual(json.loads(call(port, path='/metrics')[1])['active'], 1)
             remaining = response.read().decode('utf-8')
-            self.assertGreater(time.monotonic() - start, .005)
             self.assertEqual(remaining.count('[DONE]'), 1)
             conn.close()
             for request in [{'prompt': ''}, {'prompt': 'x', 'max_tokens': 0}, {'prompt': 'x', 'max_tokens': 129},
@@ -159,6 +160,18 @@ class HTTPTests(unittest.TestCase):
                 self.assertIn(active.result()[0], (500,503))
                 self.assertEqual(queued.result()[0], 503)
                 self.assertEqual(process.wait(5), 0)
+
+    def test_http_metrics_scope(self):
+        with server(mock_delay_ms=1) as (port, _):
+            self.assertEqual(call(port, {'prompt': 'x', 'max_tokens': 1})[0], 200)
+            self.assertEqual(call(port, {'prompt': ''})[0], 400)
+            self.assertEqual(call(port, {'prompt': '__error__'})[0], 500)
+            metrics = wait_metric(port, 'http_responses_logged', 3)
+            self.assertEqual(metrics['http_requests_started'], 3)
+            self.assertEqual(metrics['http_status_4xx'], 1)
+            self.assertEqual(metrics['http_status_5xx'], 1)
+            self.assertEqual(metrics['accepted'], 2)
+            self.assertEqual(metrics['completed'], 1)
 
     def test_bad_config(self):
         base = json.loads((ROOT/'configs/server.json').read_text())
