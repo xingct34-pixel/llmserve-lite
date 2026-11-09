@@ -46,7 +46,7 @@ def main():
     out=ROOT/'results/cpu-matrix';out.mkdir(parents=True,exist_ok=True)
     binary=ROOT/'build/cpu/llmserve';base=json.loads((ROOT/'configs/cpu.json').read_text())
     manifest=json.loads((ROOT/'models/manifest.json').read_text());model=ROOT/base['model_path']
-    actual_hash=hashlib.sha256(model.read_bytes()).hexdigest()
+    actual_hash=bench.sha256_file(model)
     assert actual_hash=='74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db'
     report={'engine':'llama','backend':'CPU','binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),
             'model_sha256':actual_hash,'context_tokens':base['context_tokens'],'matrix':[],'concurrency':[]}
