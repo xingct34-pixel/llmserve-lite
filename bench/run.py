@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def sha256_file(path):
     """Hash large weights with a fixed 1 MiB read buffer."""
+    # 大权重按1 MiB分块校验；降低的是基准工具读文件的内存，不是C++推理服务的内存。
     digest = hashlib.sha256()
     with Path(path).open('rb') as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b''):
@@ -29,6 +30,7 @@ def percentile(values, p):
     if not values:
         return None
     a = sorted(values)
+    # 本脚本取排序后最接近p*(n-1)位置的样本，不做YOLO项目中使用的线性插值。
     return a[min(len(a)-1, max(0, int((len(a)-1)*p+.5)))]
 
 def get(port, route):
@@ -44,6 +46,7 @@ def get(port, route):
 
 def request(port, prompt, output):
     row = {'status': None, 'success': False, 'output_tokens': 0}
+    # 客户端TTFT从发起请求前算到读到首个非空delta，含排队和HTTP传输/读取开销。
     begin = time.monotonic()
     conn = http.client.HTTPConnection('127.0.0.1', port, timeout=150)
     try:
@@ -68,6 +71,7 @@ def request(port, prompt, output):
                     done = event
                 elif event.get('type') == 'error':
                     row['error'] = event.get('code')
+            # HTTP 200不能单独证明生成成功：还须同时收到done事件和协议结束标记。
             if done and marker:
                 row.update(success=True, output_tokens=done['usage']['completion_tokens'],
                            prompt_tokens=done['usage']['prompt_tokens'], timings=done['timings'])
@@ -157,6 +161,8 @@ def main():
                     with concurrent.futures.ThreadPoolExecutor(concurrency) as pool:
                         rows = list(pool.map(lambda _: request(config['port'], args.prompt, args.max_tokens), range(args.samples)))
                     elapsed = time.monotonic()-started
+                    # 延迟分位只针对成功样本；429拒绝单列，不能忽略拒绝率比较并发效果。
+                    # 吞吐分母是整组墙钟时间；Mock的output_tokens仍是模拟片段数。
                     good = [r for r in rows if r['success']]
                     group = {'concurrency': concurrency, 'wall_seconds': elapsed, 'requests': rows,
                              'successes': len(good), 'rejected': sum(r['status']==429 for r in rows),

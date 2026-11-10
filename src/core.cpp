@@ -8,6 +8,8 @@ namespace serve {
 double millis(Clock::time_point a, Clock::time_point b) {
     return std::chrono::duration<double,std::milli>(b-a).count();
 }
+// system_clock记录可读墙钟时间；耗时用steady_clock，避免系统时间校准影响差值。
+// 日志锁保证多个线程的JSON记录不互相穿插，调用方不把提示词正文写入日志。
 void log(const Json& event) {
     static std::mutex mutex;
     auto record=event;
@@ -36,6 +38,8 @@ Config Config::load(const std::string& path) {
 #undef READ
     if (c.engine!="mock" && c.engine!="llama") throw std::runtime_error("engine must be mock or llama");
     if (c.host!="127.0.0.1") throw std::runtime_error("this build only binds 127.0.0.1");
+    // 这些是本项目面向低内存机器的保守边界，不是llama.cpp或模型的通用极限。
+    // HTTP线程至少比等待容量多3，配合接入上限给健康检查及拒绝响应留出处理余量。
     if(c.port<1024 || c.port>65535 || c.threads<1 || c.threads>6 || c.context_tokens<128 || c.context_tokens>2048 ||
        c.max_output_tokens<1 || c.max_output_tokens>512 || c.max_output_tokens>=c.context_tokens ||
        c.queue_capacity<1 || c.queue_capacity>32 || c.http_threads<c.queue_capacity+3 || c.http_threads>48 ||
@@ -52,6 +56,8 @@ void Job::cancel(const std::string& reason) {
     if (!done && !cancelled.load()) { cancel_reason=reason; cancelled=true; }
     cv.notify_all();
 }
+// 生成期限从started算，排队期限从submitted算，二者不会混成一个超时。
+// 协作式取消：引擎在检查点调用此函数，不是强杀正在运行的线程。
 bool Job::stopped() {
     std::lock_guard<std::mutex> lock(mutex);
     if (!done && running && Clock::now()-started>=std::chrono::milliseconds(config.generation_timeout_ms) && !cancelled.load()) {
@@ -62,6 +68,8 @@ bool Job::stopped() {
 bool Job::emit(const std::string& text) {
     if(stopped()) return false;
     std::unique_lock<std::mutex> lock(mutex);
+    // 客户端读得慢时，有限事件缓冲会填满；最多等背压期限与执行期限中较早的一个。
+    // wait_until睡眠期间释放Job锁，消费者next()取走事件后通知生产者继续。
     const auto until=std::min(Clock::now()+std::chrono::milliseconds(config.backpressure_timeout_ms),
                              started+std::chrono::milliseconds(config.generation_timeout_ms));
     if (!cv.wait_until(lock,until,[&]{return events.size()<size_t(config.event_capacity)||cancelled.load();})) {
@@ -69,18 +77,21 @@ bool Job::emit(const std::string& text) {
         cancelled=true;
     }
     if(cancelled.load()) return false;
+    // first是首个完整文本片段入队的时刻，不是客户端真正收到数据的时刻。
     if(first==Clock::time_point{}) first=Clock::now();
     events.push_back({{"type","delta"},{"request_id",id},{"text",text}});
     cv.notify_all(); return true;
 }
 void Job::finish(const Json& event) {
     std::lock_guard<std::mutex> lock(mutex);
+    // 一个Job只写一次终态，避免异常、退出等路径重复结束同一个请求。
     if(done) return;
     terminal=event; terminal["request_id"]=id; done=true; finished=Clock::now(); cv.notify_all();
 }
 std::optional<Json> Job::next() {
     std::unique_lock<std::mutex> lock(mutex);
     while(events.empty() && !done) cv.wait_for(lock,std::chrono::milliseconds(50));
+    // 先读完已产生的delta，再读一次终态；随后nullopt表示事件流结束。
     if(!events.empty()) { auto e=std::move(events.front()); events.pop_front(); cv.notify_all(); return e; }
     if(!terminal_read) {terminal_read=true; return terminal;}
     return std::nullopt;
@@ -99,7 +110,7 @@ Scheduler::Scheduler(Config c,std::unique_ptr<Engine> engine):config_(std::move(
 Scheduler::~Scheduler(){stop();}
 std::shared_ptr<Job> Scheduler::submit(Request r) {
     std::lock_guard<std::mutex> lock(mutex_);
-    // Drop cancelled or expired waiters before admission; never let stale waiters consume capacity.
+    // 接收新任务前清理已取消/过期的等待者，防止无效Job一直占据容量。
     for(auto it=queue_.begin();it!=queue_.end();) {
         auto& j=*it;
         if(j->cancelled.load() || Clock::now()-j->submitted>=std::chrono::milliseconds(config_.queue_timeout_ms)) {
@@ -111,6 +122,7 @@ std::shared_ptr<Job> Scheduler::submit(Request r) {
             it=queue_.erase(it);
         } else ++it;
     }
+    // 此容量只计等待队列，不包含已经取出的active任务；接入层另有限制。
     if(stopping_ || queue_.size()>=size_t(config_.queue_capacity)) {++rejected_; return {};}
     auto job=std::make_shared<Job>(std::to_string(++sequence_),std::move(r),config_);
     queue_.push_back(job); ++accepted_; queue_peak_=std::max(queue_peak_,queue_.size()); cv_.notify_one(); return job;
@@ -122,6 +134,7 @@ void Scheduler::run() {
             std::unique_lock<std::mutex> lock(mutex_);
             cv_.wait(lock,[&]{return stopping_||!queue_.empty();});
             if(stopping_ && queue_.empty()) break;
+            // 这里只取任务并更新active，离开作用域释放队列锁，再进行模型计算。
             job=queue_.front();queue_.pop_front();active_=job;
         }
         {
@@ -135,6 +148,7 @@ void Scheduler::run() {
         Json terminal;
         try {
             if(job->cancelled.load()) throw std::runtime_error("cancelled before start");
+            // 引擎通过回调向Job投递文本、检查停止；HTTP线程通过next()独立消费这些事件。
             auto g=engine_->generate(job->request,[&](const std::string& s){return job->emit(s);},[&]{return job->stopped();});
             if(job->stopped()) throw std::runtime_error("generation cancelled");
             terminal={{"type","done"},{"finish_reason",g.finish_reason},
@@ -142,6 +156,7 @@ void Scheduler::run() {
                       {"timings",{{"queue_ms",millis(job->submitted,job->started)},
                                   {"execution_ms",millis(job->started,Clock::now())},
                                   {"prefill_ms",g.prefill_ms},{"decode_ms",g.decode_ms}}}};
+            // queue_ms=提交到开始；first_token_ms=开始到首片段入队，不含排队和网络读取。
             if(job->first!=Clock::time_point{}) terminal["timings"]["first_token_ms"]=millis(job->started,job->first);
         }catch(const std::invalid_argument& e){terminal={{"type","error"},{"code","invalid_request"},{"message",e.what()}};
         }catch(const std::exception& e){
@@ -174,6 +189,8 @@ void Scheduler::run() {
         }
     }
 }
+// 停止时取消active并给排队任务写终态、通知等待者，再join；这里不是排空所有任务。
+// engine_在worker结束后才销毁，避免推理线程访问已释放的模型/context。
 void Scheduler::stop() {
     {
         std::lock_guard<std::mutex> lock(mutex_);

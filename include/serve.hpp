@@ -21,6 +21,9 @@ inline bool is_int(const Json& j) {
     const auto n=j.get<int64_t>();
     return n>=std::numeric_limits<int>::min() && n<=std::numeric_limits<int>::max();
 }
+// 资源参数分三层：threads是模型CPU计算线程，http_threads是接待连接的线程，推理worker固定为1。
+// queue_capacity限制等待推理的Job数量，event_capacity限制每个Job尚未被读取的文本事件数量。
+// context_tokens容纳模板化提示词和生成预留量；max_output_tokens只限制新生成部分。
 struct Config {
     std::string engine="mock", host="127.0.0.1", model_path;
     int port=8080, threads=4, context_tokens=1024, max_output_tokens=128;
@@ -38,7 +41,8 @@ struct Generation {
 class Engine {
 public:
     virtual ~Engine()=default;
-    // All engine methods are owned by the inference worker after startup.
+    // generate仅由单个推理worker调用；emit交出完整文本片段，stop检查取消/执行超时。
+    // name是只读名称，也会被HTTP指标接口读取；输出token数不等于文本事件数。
     virtual Generation generate(const Request&, const std::function<bool(const std::string&)>&,
                                 const std::function<bool()>&)=0;
     virtual std::string name() const=0;
@@ -48,6 +52,8 @@ std::string complete_utf8(std::string&,bool flush=false);
 void log(const Json&);
 double millis(Clock::time_point a, Clock::time_point b);
 
+// 一个请求对应一个Job；shared_ptr使它跨HTTP处理器、worker、SSE回调保持存活。
+// cancelled提供跨线程停止信号；原因、运行状态和事件容器仍由mutex保护。
 struct Job {
     const std::string id;
     const Request request;
@@ -59,6 +65,7 @@ struct Job {
     std::condition_variable cv;
     bool running=false, done=false, terminal_read=false;
     std::deque<Json> events;
+    // 终态单独存放，不挤占有限的delta缓冲，慢消费者也不会堵住finish。
     Json terminal;
     std::string cancel_reason;
     explicit Job(std::string, Request, const Config&);
@@ -70,6 +77,8 @@ struct Job {
     bool await_start();
 };
 
+// 有界FIFO调度器：等待任务从队头取出；HTTP并发接入不会增加模型解码worker数量。
+// 涉及两把锁时顺序为Scheduler锁 -> Job锁；耗时推理不持有Scheduler锁。
 class Scheduler {
     Config config_;
     std::unique_ptr<Engine> engine_;

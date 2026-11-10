@@ -34,6 +34,8 @@ def main():
         report['model_sha256'] = model_hash
     prompt = '请简短解释请求队列。'
     try:
+        # 3种上下文容量x2种等待容量=6例；每例独立启动服务，模型worker始终只有1个。
+        # 配置改变用于观察资源/排队/拒绝，不表示实现了连续批处理或并行模型解码。
         for context in (512, 1024, 2048):
             for capacity in (1, 4):
                 label = f'context-{context}-queue-{capacity}'
@@ -45,6 +47,7 @@ def main():
                     with concurrent.futures.ThreadPoolExecutor(8) as executor:
                         rows = list(executor.map(lambda _: matrix.bench.request(port, prompt, 16), range(args.samples)))
                     elapsed = time.monotonic() - started
+                    # TTFT分位只看成功请求，必须连同rejected_429一起解读；拒绝不算引擎生成失败。
                     good = [row for row in rows if row['success']]
                     bad = [row for row in rows if not row['success'] and row['status'] != 429]
                     if bad or not good:
