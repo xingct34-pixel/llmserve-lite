@@ -1,3 +1,4 @@
+# 模块：校验内存实验：比较整文件读取与分块哈希
 """Measure benchmark-client hashing memory in a fresh Linux process."""
 import argparse
 import hashlib
@@ -9,6 +10,7 @@ import sys
 from run import sha256_file
 
 
+# 模块：执行入口：读取参数并组织该工具的完整流程
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mode', choices=['whole-file', 'stream'], required=True)
@@ -20,9 +22,17 @@ def main():
         digest = hashlib.sha256(args.model.read_bytes()).hexdigest()
     else:
         digest = sha256_file(args.model)
-    print(json.dumps({'mode': args.mode, 'model_bytes': args.model.stat().st_size,
-                      'sha256': digest, 'process_peak_rss_kib': resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
-                      'scope': 'benchmark client only, not inference server'}))
+    print(
+        json.dumps(
+            {
+                'mode': args.mode,
+                'model_bytes': args.model.stat().st_size,
+                'sha256': digest,
+                'process_peak_rss_kib': resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                'scope': 'benchmark client only, not inference server',
+            }
+        )
+    )
 
 
 if __name__ == '__main__':
