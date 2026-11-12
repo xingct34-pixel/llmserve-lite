@@ -3,7 +3,10 @@
 #include <csignal>
 #include <iostream>
 
+
 // 模块：HTTP辅助：信号标志、JSON响应和错误码映射
+
+
 namespace {
 static_assert(std::atomic<bool>::is_always_lock_free, "signal flag must be lock-free");
 std::atomic<bool> interrupted{false};
@@ -30,7 +33,10 @@ int error_status(const serve::Json& event) {
 }
 }
 
+
 // 模块：服务入口：加载配置/引擎，注册路由并监听本地端口
+
+
 int main(int argc, char** argv) {
     try {
         if (argc != 2) {
@@ -38,7 +44,10 @@ int main(int argc, char** argv) {
             return 2;
         }
 
+
         // 模块：1. 服务初始化：加载引擎，设置线程池和HTTP资源限制
+
+
         const auto config = serve::Config::load(argv[1]);
         // 先加载唯一引擎，再启动单worker；加载失败时不会监听端口或宣称服务就绪。
         serve::Scheduler scheduler(config, serve::make_engine(config));
@@ -56,7 +65,10 @@ int main(int argc, char** argv) {
         // 接入上限=等待容量+1，配合线程数下限给健康/指标/拒绝响应留余量；不增加推理worker。
         std::atomic<int> handling{0};
 
+
         // 模块：2. 健康检查：提供存活与就绪探针
+
+
         server.Get("/healthz", [&](const auto&, auto& res) {
             reply(res, 200, {{"status", "ok"}});
         });
@@ -64,7 +76,10 @@ int main(int argc, char** argv) {
             reply(res, interrupted ? 503 : 200, {{"ready", !interrupted}});
         });
 
+
         // 模块：3. 指标接口：分别记录HTTP状态与调度器结果
+
+
         std::atomic<uint64_t> http_started{0}, http_logged{0}, http_429{0}, http_4xx{0},
             http_5xx{0};
         // HTTP状态和推理终态分别计数：SSE头已发出后生成失败，HTTP仍可能记录200。
@@ -89,14 +104,36 @@ int main(int argc, char** argv) {
             reply(res, 200, metrics);
         });
 
+
+        // 模块：Prometheus接口：保留原JSON指标，在独立地址提供标准文本格式
+        // 不使用request_id或prompt作为标签，避免为每条请求创建一批新时间序列。
+
+
+        server.Get("/metrics/prometheus", [&](const auto&, auto& res) {
+            auto snapshot = scheduler.metrics();
+            snapshot["http_requests_started"] = http_started.load();
+            snapshot["http_responses_logged"] = http_logged.load();
+            snapshot["http_status_429"] = http_429.load();
+            snapshot["http_status_4xx"] = http_4xx.load();
+            snapshot["http_status_5xx"] = http_5xx.load();
+            res.set_content(serve::prometheus(snapshot),
+                            "text/plain; version=0.0.4; charset=utf-8");
+        });
+
+
         // 模块：4. 推理接口：校验、接入、排队并选择JSON或SSE输出
+
+
         server.Post("/v1/completions", [&](const httplib::Request& req, httplib::Response& res) {
             ++http_started;
             bool owns_slot = false;
             std::shared_ptr<serve::Job> job;
             try {
 
+
                 // 模块：4.1 请求校验：检查JSON字段和提示词/输出范围
+
+
                 auto j = serve::Json::parse(req.body);
                 if (!j.is_object() || !j.contains("prompt") || !j["prompt"].is_string() ||
                     (j.contains("stream") && !j["stream"].is_boolean()) ||
@@ -116,9 +153,13 @@ int main(int argc, char** argv) {
                     reply(res, 503, {{"error", "shutting_down"}});
                     return;
                 }
+
+
                 // 模块：4.2 有界接入：先占HTTP名额，再尝试提交等待队列
                 // 两层拒绝：此处接入已满返回admission_full；Scheduler等待队列满返回queue_full。
                 // 接入层拒绝没有进入调度器，因此Scheduler.rejected不包含所有HTTP 429。
+
+
                 if (handling.fetch_add(1) >= config.queue_capacity + 1) {
                     handling.fetch_sub(1);
                     res.set_header("Retry-After", "1");
@@ -135,8 +176,12 @@ int main(int argc, char** argv) {
                     return;
                 }
                 res.set_header("X-Request-ID", job->id);
+
+
                 // 模块：4.3 等待执行：早期失败仍返回真实HTTP错误码
                 // 先等开始、再读首事件，响应头尚未发出，早期错误仍能用400/504等真实HTTP状态。
+
+
                 if (!job->await_start()) {
                     std::string reason;
                     {
@@ -159,8 +204,12 @@ int main(int argc, char** argv) {
                     reply(res, error_status(err), err);
                     return;
                 }
+
+
                 // 模块：4.4 JSON响应：消费事件缓冲并汇总为一次返回
                 // 非流式也消费同一个有界事件缓冲，只是攒齐文本后一次返回JSON。
+
+
                 if (!request.stream) {
                     std::string output;
                     auto event = initial;
@@ -179,9 +228,13 @@ int main(int argc, char** argv) {
                     reply(res, 200, *event);
                     return;
                 }
+
+
                 // 模块：4.5 SSE响应：保留首事件，逐段写入并处理断连
                 // SSE是HTTP响应中的事件流，不是WebSocket。每帧用data: JSON加空行分隔。
                 // pending保留已取出的首事件；shared_ptr按值捕获，保证后续发送回调中Job仍有效。
+
+
                 res.set_header("X-Accel-Buffering", "no");
                 auto pending = std::make_shared<std::optional<serve::Json>>(std::move(initial));
                 res.set_chunked_content_provider(
@@ -248,7 +301,10 @@ int main(int argc, char** argv) {
             }
         });
 
+
         // 模块：5. 监听与退出：统一处理错误、绑定端口和监视停止信号
+
+
         server.set_exception_handler([](const auto&, auto& res, std::exception_ptr) {
             reply(res, 500, {{"error", "internal_error"}});
         });

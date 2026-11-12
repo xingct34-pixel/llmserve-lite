@@ -14,7 +14,7 @@ AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 AllowShortLambdasOnASingleLine: None
 SeparateDefinitionBlocks: Always
-MaxEmptyLinesToKeep: 1
+MaxEmptyLinesToKeep: 2
 ReflowComments: false
 SortIncludes: Never
 IncludeBlocks: Preserve

@@ -6,14 +6,20 @@
 
 namespace serve {
 
+
 // 模块：计时辅助：使用单调时钟计算毫秒差
+
+
 double millis(Clock::time_point a, Clock::time_point b) {
     return std::chrono::duration<double, std::milli>(b - a).count();
 }
 
+
 // 模块：日志输出：为事件加时间戳并串行写入JSON日志
 // system_clock记录可读墙钟时间；耗时用steady_clock，避免系统时间校准影响差值。
 // 日志锁保证多个线程的JSON记录不互相穿插，调用方不把提示词正文写入日志。
+
+
 void log(const Json& event) {
     static std::mutex mutex;
     auto record = event;
@@ -24,7 +30,10 @@ void log(const Json& event) {
     std::cerr << record.dump(-1, ' ', false, Json::error_handler_t::replace) << '\n';
 }
 
+
 // 模块：配置加载：检查字段、类型及本项目的资源边界
+
+
 Config Config::load(const std::string& path) {
     std::ifstream file(path);
     if (!file)
@@ -47,7 +56,9 @@ Config Config::load(const std::string& path) {
                                            "queue_timeout_ms",
                                            "generation_timeout_ms",
                                            "backpressure_timeout_ms",
-                                           "mock_delay_ms"};
+                                           "mock_delay_ms",
+                                           "prefix_cache_tokens",
+                                           "queued_output_budget"};
     for (auto it = j.begin(); it != j.end(); ++it) {
         if (std::find(keys.begin(), keys.end(), it.key()) == keys.end())
             throw std::runtime_error("unknown config key: " + it.key());
@@ -72,6 +83,8 @@ Config Config::load(const std::string& path) {
     READ(generation_timeout_ms);
     READ(backpressure_timeout_ms);
     READ(mock_delay_ms);
+    READ(prefix_cache_tokens);
+    READ(queued_output_budget);
 #undef READ
     if (c.engine != "mock" && c.engine != "llama")
         throw std::runtime_error("engine must be mock or llama");
@@ -88,17 +101,30 @@ Config Config::load(const std::string& path) {
         c.generation_timeout_ms > 600000 || c.backpressure_timeout_ms < 10 ||
         c.backpressure_timeout_ms > 30000 || c.mock_delay_ms < 0 || c.mock_delay_ms > 1000)
         throw std::runtime_error("config value outside supported resource bounds");
+    if (c.queued_output_budget < 0 || c.queued_output_budget > 16384)
+        throw std::runtime_error("queued_output_budget must be in 0..16384");
+    if (c.prefix_cache_tokens < 0 || c.prefix_cache_tokens >= c.context_tokens)
+        throw std::runtime_error(
+            "prefix_cache_tokens must be >= 0 and smaller than context_tokens");
+    if (c.engine == "mock" && c.prefix_cache_tokens != 0)
+        throw std::runtime_error("prefix cache requires the real llama engine");
     if (c.engine == "llama" && c.model_path.empty())
         throw std::runtime_error("model_path required");
     return c;
 }
 
+
 // 模块：任务初始化：保存不可变请求及配置快照
+
+
 Job::Job(std::string value, Request req, const Config& cfg)
     : id(std::move(value)), request(std::move(req)), config(cfg) {
 }
 
+
 // 模块：任务取消：设置原因并通知等待者
+
+
 void Job::cancel(const std::string& reason) {
     std::lock_guard<std::mutex> lock(mutex);
     if (!done && !cancelled.load()) {
@@ -108,9 +134,12 @@ void Job::cancel(const std::string& reason) {
     cv.notify_all();
 }
 
+
 // 模块：执行期限：协作式检查取消或生成超时
 // 生成期限从started算，排队期限从submitted算，二者不会混成一个超时。
 // 协作式取消：引擎在检查点调用此函数，不是强杀正在运行的线程。
+
+
 bool Job::stopped() {
     std::lock_guard<std::mutex> lock(mutex);
     if (!done && running &&
@@ -123,7 +152,10 @@ bool Job::stopped() {
     return cancelled.load();
 }
 
+
 // 模块：文本投递：写入有界缓冲并限制慢消费者等待
+
+
 bool Job::emit(const std::string& text) {
     if (stopped())
         return false;
@@ -152,7 +184,10 @@ bool Job::emit(const std::string& text) {
     return true;
 }
 
+
 // 模块：任务终结：仅写入一次独立终态并唤醒消费者
+
+
 void Job::finish(const Json& event) {
     std::lock_guard<std::mutex> lock(mutex);
     // 一个Job只写一次终态，避免异常、退出等路径重复结束同一个请求。
@@ -165,7 +200,10 @@ void Job::finish(const Json& event) {
     cv.notify_all();
 }
 
+
 // 模块：事件消费：先取文本，最后取终态，结束后返回空值
+
+
 std::optional<Json> Job::next() {
     std::unique_lock<std::mutex> lock(mutex);
     while (events.empty() && !done)
@@ -184,7 +222,10 @@ std::optional<Json> Job::next() {
     return std::nullopt;
 }
 
+
 // 模块：排队等待：在等待期限内等到worker开始或任务结束
+
+
 bool Job::await_start() {
     std::unique_lock<std::mutex> lock(mutex);
     const auto deadline = submitted + std::chrono::milliseconds(config.queue_timeout_ms);
@@ -199,18 +240,27 @@ bool Job::await_start() {
     return running;
 }
 
+
 // 模块：调度初始化：接管引擎并启动唯一worker
+
+
 Scheduler::Scheduler(Config c, std::unique_ptr<Engine> engine)
     : config_(std::move(c)), engine_(std::move(engine)) {
     worker_ = std::thread(&Scheduler::run, this);
 }
 
+
 // 模块：调度清理：析构前停止任务并回收worker
+
+
 Scheduler::~Scheduler() {
     stop();
 }
 
+
 // 模块：任务接入：清理过期等待者并执行容量检查
+
+
 std::shared_ptr<Job> Scheduler::submit(Request r) {
     std::lock_guard<std::mutex> lock(mutex_);
     // 接收新任务前清理已取消/过期的等待者，防止无效Job一直占据容量。
@@ -234,6 +284,21 @@ std::shared_ptr<Job> Scheduler::submit(Request r) {
         } else
             ++it;
     }
+
+
+    // 模块：等待计算预算：按最大输出预留量限制排队债务，保留FIFO，不推测GPU显存占用
+
+
+    int reserved_output = 0;
+    for (const auto& pending : queue_)
+        reserved_output += pending->request.max_tokens;
+    if (config_.queued_output_budget &&
+        reserved_output + r.max_tokens > config_.queued_output_budget) {
+        ++rejected_;
+        return {};
+    }
+
+
     // 此容量只计等待队列，不包含已经取出的active任务；接入层另有限制。
     if (stopping_ || queue_.size() >= size_t(config_.queue_capacity)) {
         ++rejected_;
@@ -247,7 +312,10 @@ std::shared_ptr<Job> Scheduler::submit(Request r) {
     return job;
 }
 
+
 // 模块：推理循环：FIFO出队，在队列锁外生成并记录终态
+
+
 void Scheduler::run() {
     for (;;) {
         std::shared_ptr<Job> job;
@@ -292,16 +360,19 @@ void Scheduler::run() {
                 });
             if (job->stopped())
                 throw std::runtime_error("generation cancelled");
-            terminal = {
-                {"type", "done"},
-                {"finish_reason", g.finish_reason},
-                {"usage",
-                 {{"prompt_tokens", g.prompt_tokens}, {"completion_tokens", g.output_tokens}}},
-                {"timings",
-                 {{"queue_ms", millis(job->submitted, job->started)},
-                  {"execution_ms", millis(job->started, Clock::now())},
-                  {"prefill_ms", g.prefill_ms},
-                  {"decode_ms", g.decode_ms}}}};
+            terminal = {{"type", "done"},
+                        {"finish_reason", g.finish_reason},
+                        {"usage",
+                         {{"prompt_tokens", g.prompt_tokens},
+                          {"completion_tokens", g.output_tokens},
+                          {"cached_prompt_tokens", g.cached_prompt_tokens}}},
+                        {"timings",
+                         {{"queue_ms", millis(job->submitted, job->started)},
+                          {"execution_ms", millis(job->started, Clock::now())},
+                          {"prefill_ms", g.prefill_ms},
+                          {"decode_ms", g.decode_ms},
+                          {"prompt_prepare_ms", g.prompt_prepare_ms},
+                          {"prefill_compute_ms", g.prefill_compute_ms}}}};
             // queue_ms=提交到开始；first_token_ms=开始到首片段入队，不含排队和网络读取。
             if (job->first != Clock::time_point{})
                 terminal["timings"]["first_token_ms"] = millis(job->started, job->first);
@@ -332,9 +403,27 @@ void Scheduler::run() {
         log(record);
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            if (terminal["type"] == "done")
+            if (terminal["type"] == "done") {
                 ++completed_;
-            else {
+
+
+                // 模块：成功耗时归档：每个请求只统计一次；失败、取消和超时由独立计数表示
+
+
+                const auto& t = terminal.at("timings");
+                queue_seconds_.observe(t.at("queue_ms").get<double>() / 1000);
+                execution_seconds_.observe(t.at("execution_ms").get<double>() / 1000);
+                prefill_seconds_.observe(t.at("prefill_compute_ms").get<double>() / 1000);
+                decode_seconds_.observe(t.at("decode_ms").get<double>() / 1000);
+                if (t.contains("first_token_ms"))
+                    first_output_seconds_.observe(t.at("first_token_ms").get<double>() / 1000);
+                const auto& usage = terminal.at("usage");
+                prompt_tokens_ += usage.at("prompt_tokens").get<uint64_t>();
+                output_tokens_ += usage.at("completion_tokens").get<uint64_t>();
+                cached_prompt_tokens_ += usage.at("cached_prompt_tokens").get<uint64_t>();
+
+
+            } else {
                 auto code = terminal.value("code", "");
                 if (code == "queue_timeout" || code == "generation_timeout")
                     ++timed_out_;
@@ -348,9 +437,12 @@ void Scheduler::run() {
     }
 }
 
+
 // 模块：退出处理：取消运行及等待任务，再等待worker结束
 // 停止时取消active并给排队任务写终态、通知等待者，再join；这里不是排空所有任务。
 // engine_在worker结束后才销毁，避免推理线程访问已释放的模型/context。
+
+
 void Scheduler::stop() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -369,9 +461,15 @@ void Scheduler::stop() {
         worker_.join();
 }
 
+
 // 模块：指标快照：读取接入、完成、失败和当前容量状态
+
+
 Json Scheduler::metrics() const {
     std::lock_guard<std::mutex> lock(mutex_);
+    int reserved_output = 0;
+    for (const auto& job : queue_)
+        reserved_output += job->request.max_tokens;
     return {{"engine", engine_->name()},
             {"accepted", accepted_},
             {"rejected", rejected_},
@@ -380,8 +478,19 @@ Json Scheduler::metrics() const {
             {"cancelled", cancelled_},
             {"timed_out", timed_out_},
             {"queue_depth", queue_.size()},
+            {"queued_output_tokens", reserved_output},
+            {"queued_output_budget", config_.queued_output_budget},
             {"queue_peak", queue_peak_},
             {"active", active_ ? 1 : 0},
-            {"inference_workers", 1}};
+            {"inference_workers", 1},
+            {"prompt_tokens", prompt_tokens_},
+            {"output_tokens", output_tokens_},
+            {"cached_prompt_tokens", cached_prompt_tokens_},
+            {"histograms",
+             {{"queue", queue_seconds_.json()},
+              {"execution", execution_seconds_.json()},
+              {"first_output", first_output_seconds_.json()},
+              {"prefill_compute", prefill_seconds_.json()},
+              {"decode", decode_seconds_.json()}}}};
 }
 }

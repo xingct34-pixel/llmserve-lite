@@ -1,0 +1,126 @@
+{
+  "prefix": {
+    "exit": 0,
+    "peak_rss_kib": 1127556,
+    "peak_swap_kib": 0,
+    "log": "prefix-final.log",
+    "cases": [
+      {
+        "cached_prompt_tokens": 0,
+        "case": "cache_regression",
+        "output_tokens": 16,
+        "prefill_compute_ms": 195.9828,
+        "prompt_tokens": 21,
+        "same_text_as_full_prefill": true
+      },
+      {
+        "cached_prompt_tokens": 20,
+        "case": "cache_regression",
+        "output_tokens": 16,
+        "prefill_compute_ms": 31.837489,
+        "prompt_tokens": 21,
+        "same_text_as_full_prefill": true
+      },
+      {
+        "cached_prompt_tokens": 9,
+        "case": "cache_regression",
+        "output_tokens": 16,
+        "prefill_compute_ms": 118.44998,
+        "prompt_tokens": 20,
+        "same_text_as_full_prefill": false
+      },
+      {
+        "cached_prompt_tokens": 9,
+        "case": "cache_regression",
+        "output_tokens": 16,
+        "prefill_compute_ms": 112.850652,
+        "prompt_tokens": 21,
+        "same_text_as_full_prefill": true
+      }
+    ]
+  },
+  "traffic-mock": {
+    "exit": 0,
+    "peak_rss_kib": 22896,
+    "peak_swap_kib": 0,
+    "log": "traffic-mock.log",
+    "engine": "mock",
+    "summary": {
+      "offered": 24,
+      "success": 8,
+      "rejected_429": 16,
+      "client_capacity_drops": 0,
+      "other_failures": 0,
+      "slo_met": 8,
+      "slo_attainment": 0.3333333333333333,
+      "successful_requests_per_second": 4.014461223412016,
+      "goodput_requests_per_second": 4.014461223412016,
+      "success_ttft_p95_ms": 1003.2476749999546,
+      "success_latency_p95_ms": 1301.9286649999913,
+      "max_client_lag_ms": 1.533195999968484
+    },
+    "resources": {
+      "VmHWM": 4972,
+      "VmRSS": 4972,
+      "VmSwap": 0,
+      "Threads": 11,
+      "MemAvailable": 3426792,
+      "SwapFree": 1048576,
+      "at_s": 1794475082.6336772
+    },
+    "server_exit_code": 0
+  },
+  "traffic-cpu": {
+    "exit": 0,
+    "peak_rss_kib": 24148,
+    "peak_swap_kib": 0,
+    "log": "traffic-cpu.log",
+    "engine": "llama",
+    "summary": {
+      "offered": 12,
+      "success": 8,
+      "rejected_429": 4,
+      "client_capacity_drops": 0,
+      "other_failures": 0,
+      "slo_met": 8,
+      "slo_attainment": 0.6666666666666666,
+      "successful_requests_per_second": 1.8687122204815545,
+      "goodput_requests_per_second": 1.8687122204815545,
+      "success_ttft_p95_ms": 2729.7804499999643,
+      "success_latency_p95_ms": 2930.3859109999735,
+      "max_client_lag_ms": 1.3315219999867622
+    },
+    "resources": {
+      "VmHWM": 578988,
+      "VmRSS": 578988,
+      "VmSwap": 0,
+      "Threads": 14,
+      "MemAvailable": 3355080,
+      "SwapFree": 1048576,
+      "at_s": 1794475088.400952
+    },
+    "server_exit_code": 0
+  },
+  "date": "2026-11-12",
+  "source_baseline": "155115a00ed951edcd5e33f22d3cb8d8292a4d88",
+  "binaries": {
+    "build/mock/llmserve": "42d90a130462c9d26c9ad1dd443ab6d0173ccd70d8c4c1f23e63eacd0526d5a3",
+    "build/cpu/llmserve": "9a241ed1d907aedee4a7d3f7085f8b51f1f2740465bf6c210f8a504bde347c1f"
+  },
+  "scope": "single local CPU experiment; no stable acceleration or generalization claim",
+  "tests": {
+    "mock": {
+      "passed": 6,
+      "total": 6
+    },
+    "real_cpu": {
+      "passed": 8,
+      "total": 8,
+      "real_tests_skipped": 0
+    },
+    "asan_ubsan": {
+      "passed": 6,
+      "total": 6
+    }
+  }
+}

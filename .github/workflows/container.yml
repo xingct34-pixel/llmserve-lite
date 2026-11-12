@@ -1,0 +1,25 @@
+name: Mock container smoke
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  mock-container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Build isolated mock container
+        run: docker build -f deploy/Dockerfile -t llmserve-mock:test .
+      - name: Verify readiness and inference on Linux host network
+        shell: bash
+        run: |
+          set -euo pipefail
+          container=$(docker run -d --network host --memory 256m --cpus 2 llmserve-mock:test)
+          trap 'docker stop -t 10 "$container"; docker logs "$container"; docker rm "$container"' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8080/readyz; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:8080/readyz
+          curl --fail --silent http://127.0.0.1:8080/metrics/prometheus | grep 'llmserve_active'
+          curl --fail --silent http://127.0.0.1:8080/v1/completions -H 'Content-Type: application/json' -d '{"prompt":"hello","max_tokens":4}' | python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["type"] == "done" and r["usage"]["completion_tokens"] == 4'

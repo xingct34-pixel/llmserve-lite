@@ -1,4 +1,5 @@
 """Standard-library HTTP tests. Starts/stops only child servers created by this test."""
+
 import concurrent.futures
 import contextlib
 import http.client
@@ -15,6 +16,7 @@ import unittest
 
 BINARY = str(Path(sys.argv.pop(1)).resolve())
 ROOT = Path(__file__).resolve().parents[1]
+
 
 @contextlib.contextmanager
 def server(**changes):
@@ -39,7 +41,7 @@ def server(**changes):
                             break
                     except OSError:
                         pass
-                    time.sleep(.02)
+                    time.sleep(0.02)
                 else:
                     raise AssertionError('server startup deadline')
                 yield cfg['port'], process
@@ -56,26 +58,94 @@ def server(**changes):
                     log.seek(0)
                     raise AssertionError(f'server exit {process.returncode}: ' + log.read())
 
+
 def call(port, data=None, path='/v1/completions', raw=None):
     connection = http.client.HTTPConnection('127.0.0.1', port, timeout=8)
     try:
         body = json.dumps(data).encode() if raw is None and data is not None else raw
-        connection.request('GET' if data is None and raw is None else 'POST', path, body,
-                           {'Content-Type': 'application/json'})
+        connection.request(
+            'GET' if data is None and raw is None else 'POST',
+            path,
+            body,
+            {'Content-Type': 'application/json'},
+        )
         response = connection.getresponse()
         return response.status, response.read().decode('utf-8')
     finally:
         connection.close()
+
 
 def wait_metric(port, key, value):
     for _ in range(200):
         metrics = json.loads(call(port, path='/metrics')[1])
         if metrics[key] == value:
             return metrics
-        time.sleep(.01)
+        time.sleep(0.01)
     raise AssertionError(f'{key} never reached {value}: {metrics}')
 
+
 class HTTPTests(unittest.TestCase):
+
+
+    # 模块：标准指标：成功与失败分开计数，验证累计桶和文本格式
+
+
+    def test_prometheus_and_stage_metrics(self):
+        with server(mock_delay_ms=1) as (port, _):
+            self.assertEqual(call(port, {'prompt': 'hello', 'max_tokens': 2})[0], 200)
+            self.assertEqual(call(port, {'prompt': '__error__', 'max_tokens': 2})[0], 500)
+            wait_metric(port, 'completed', 1)
+            wait_metric(port, 'failed', 1)
+            status, body = call(port, path='/metrics/prometheus')
+            self.assertEqual(status, 200)
+            self.assertIn('# TYPE llmserve_completed_total counter', body)
+            self.assertIn('llmserve_completed_total 1\n', body)
+            self.assertIn('llmserve_failed_total 1\n', body)
+            self.assertIn('llmserve_success_execution_seconds_count 1\n', body)
+            self.assertIn('llmserve_success_execution_seconds_bucket{le="+Inf"} 1\n', body)
+            self.assertNotIn('request_id=', body)
+            self.assertNotIn('hello', body)
+            metrics = json.loads(call(port, path='/metrics')[1])
+            self.assertEqual(metrics['histograms']['execution']['count'], 1)
+            self.assertEqual(metrics['output_tokens'], 2)
+
+
+    # 模块：预算背压：活动任务不计入等待预算；超过预算拒绝，消费后容量恢复
+
+
+    def test_queued_output_budget(self):
+        with server(mock_delay_ms=25, queued_output_budget=12) as (port, _):
+            with concurrent.futures.ThreadPoolExecutor(2) as pool:
+                active = pool.submit(call, port, {'prompt': 'active', 'max_tokens': 12})
+                wait_metric(port, 'active', 1)
+                waiting = pool.submit(call, port, {'prompt': 'waiting', 'max_tokens': 10})
+                wait_metric(port, 'queued_output_tokens', 10)
+                self.assertEqual(call(port, {'prompt': 'over budget', 'max_tokens': 3})[0], 429)
+                self.assertEqual(active.result()[0], 200)
+                self.assertEqual(waiting.result()[0], 200)
+            self.assertEqual(call(port, {'prompt': 'recovered', 'max_tokens': 2})[0], 200)
+            wait_metric(port, 'queued_output_tokens', 0)
+
+
+    # 模块：配置拒绝：新开关同样执行类型与范围检查，错误配置不能启动服务
+
+
+    def test_new_config_validation(self):
+        for changes in [
+            {'prefix_cache_tokens': 1},
+            {'prefix_cache_tokens': -1},
+            {'queued_output_budget': -1},
+            {'queued_output_budget': 1.5},
+        ]:
+            with tempfile.TemporaryDirectory() as folder:
+                config = json.loads((ROOT / 'configs/mock.json').read_text())
+                config.update(changes)
+                path = Path(folder) / 'invalid.json'
+                path.write_text(json.dumps(config))
+                result = subprocess.run([BINARY, str(path)], capture_output=True, timeout=5)
+                self.assertEqual(result.returncode, 1, changes)
+                self.assertIn(b'startup_error', result.stderr)
+
     def test_json_stream_and_validation(self):
         with server(mock_delay_ms=50) as (port, _):
             status, body = call(port, {'prompt': '你好', 'max_tokens': 8})
@@ -83,7 +153,11 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual((status, result['text']), (200, '你好，这是测试。'))
             self.assertEqual(result['usage']['completion_tokens'], 8)
             conn = http.client.HTTPConnection('127.0.0.1', port, timeout=8)
-            conn.request('POST', '/v1/completions', json.dumps({'prompt': 'hi', 'max_tokens': 32, 'stream': True}))
+            conn.request(
+                'POST',
+                '/v1/completions',
+                json.dumps({'prompt': 'hi', 'max_tokens': 32, 'stream': True}),
+            )
             response = conn.getresponse()
             self.assertEqual(response.status, 200)
             start = time.monotonic()
@@ -94,20 +168,30 @@ class HTTPTests(unittest.TestCase):
             remaining = response.read().decode('utf-8')
             self.assertEqual(remaining.count('[DONE]'), 1)
             conn.close()
-            for request in [{'prompt': ''}, {'prompt': 'x', 'max_tokens': 0}, {'prompt': 'x', 'max_tokens': 129},
-                            {'prompt': 'x', 'stream': 1}, {'prompt': 'x', 'extra': True},
-                            {'prompt': 'x', 'max_tokens': 1.5}, {'prompt': 'x'*1000, 'max_tokens': 128},
-                            {'prompt': 'x', 'max_tokens': 2**64}, {'prompt': 'x', 'max_tokens': 2**32+1}, {'prompt': '\0'}]:
+            for request in [
+                {'prompt': ''},
+                {'prompt': 'x', 'max_tokens': 0},
+                {'prompt': 'x', 'max_tokens': 129},
+                {'prompt': 'x', 'stream': 1},
+                {'prompt': 'x', 'extra': True},
+                {'prompt': 'x', 'max_tokens': 1.5},
+                {'prompt': 'x' * 1000, 'max_tokens': 128},
+                {'prompt': 'x', 'max_tokens': 2**64},
+                {'prompt': 'x', 'max_tokens': 2**32 + 1},
+                {'prompt': '\0'},
+            ]:
                 self.assertEqual(call(port, request)[0], 400, request)
             self.assertEqual(call(port, raw=b'{')[0], 400)
             self.assertEqual(call(port, raw=b'[')[0], 400)
-            self.assertEqual(call(port, raw=b'x'*17000)[0], 413)
+            self.assertEqual(call(port, raw=b'x' * 17000)[0], 413)
             self.assertEqual(call(port, path='/missing')[0], 404)
 
     def test_faults_and_recovery(self):
         with server(mock_delay_ms=2) as (port, _):
             self.assertEqual(call(port, {'prompt': '__error__'})[0], 500)
-            status, body = call(port, {'prompt': '__error_after__', 'max_tokens': 8, 'stream': True})
+            status, body = call(
+                port, {'prompt': '__error_after__', 'max_tokens': 8, 'stream': True}
+            )
             self.assertEqual(status, 200)
             self.assertIn('event: error', body)
             self.assertNotIn('[DONE]', body)
@@ -119,15 +203,19 @@ class HTTPTests(unittest.TestCase):
                 futures = [pool.submit(call, port, {'prompt': 'active', 'max_tokens': 30})]
                 wait_metric(port, 'active', 1)
                 for i in range(4):
-                    futures.append(pool.submit(call, port, {'prompt': f'queued{i}', 'max_tokens': 1}))
-                    wait_metric(port, 'queue_depth', i+1)
+                    futures.append(
+                        pool.submit(call, port, {'prompt': f'queued{i}', 'max_tokens': 1})
+                    )
+                    wait_metric(port, 'queue_depth', i + 1)
                 self.assertEqual(call(port, {'prompt': 'overflow', 'max_tokens': 1})[0], 429)
                 t = time.monotonic()
                 self.assertEqual(call(port, path='/healthz')[0], 200)
-                self.assertLess(time.monotonic()-t, .5)
+                self.assertLess(time.monotonic() - t, 0.5)
                 results = [f.result() for f in futures]
                 self.assertTrue(all(r[0] == 200 for r in results))
-                self.assertEqual([json.loads(r[1])['request_id'] for r in results], ['1','2','3','4','5'])
+                self.assertEqual(
+                    [json.loads(r[1])['request_id'] for r in results], ['1', '2', '3', '4', '5']
+                )
 
     def test_timeouts(self):
         with server(mock_delay_ms=100, generation_timeout_ms=40) as (port, _):
@@ -142,7 +230,11 @@ class HTTPTests(unittest.TestCase):
     def test_disconnect_and_shutdown(self):
         with server(mock_delay_ms=15) as (port, process):
             conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
-            conn.request('POST', '/v1/completions', json.dumps({'prompt': 'disconnect', 'stream': True, 'max_tokens': 128}))
+            conn.request(
+                'POST',
+                '/v1/completions',
+                json.dumps({'prompt': 'disconnect', 'stream': True, 'max_tokens': 128}),
+            )
             response = conn.getresponse()
             response.readline()
             response.close()
@@ -157,7 +249,7 @@ class HTTPTests(unittest.TestCase):
                 queued = pool.submit(call, port, {'prompt': 'queued', 'max_tokens': 1})
                 wait_metric(port, 'queue_depth', 1)
                 process.send_signal(signal.SIGINT)
-                self.assertIn(active.result()[0], (500,503))
+                self.assertIn(active.result()[0], (500, 503))
                 self.assertEqual(queued.result()[0], 503)
                 self.assertEqual(process.wait(5), 0)
 
@@ -174,9 +266,18 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual(metrics['completed'], 1)
 
     def test_bad_config(self):
-        base = json.loads((ROOT/'configs/server.json').read_text())
-        for key, value in [('threads', 0), ('engine', 'bad'), ('host', '0.0.0.0'), ('port', 12),
-                           ('queue_capacity', 100), ('http_threads', 2), ('typo', 1), ('threads', 1.5), ('port', 2**32+8080)]:
+        base = json.loads((ROOT / 'configs/server.json').read_text())
+        for key, value in [
+            ('threads', 0),
+            ('engine', 'bad'),
+            ('host', '0.0.0.0'),
+            ('port', 12),
+            ('queue_capacity', 100),
+            ('http_threads', 2),
+            ('typo', 1),
+            ('threads', 1.5),
+            ('port', 2**32 + 8080),
+        ]:
             cfg = dict(base, **{key: value})
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json') as config:
                 json.dump(cfg, config)
@@ -184,6 +285,7 @@ class HTTPTests(unittest.TestCase):
                 result = subprocess.run([BINARY, config.name], capture_output=True, timeout=5)
                 self.assertEqual(result.returncode, 1)
                 self.assertIn(b'startup_error', result.stderr)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

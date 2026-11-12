@@ -1,0 +1,18 @@
+# 模块：告警示例：请求拒绝与队列积压分别提示，阈值须根据实际负载调整
+groups:
+  - name: llmserve
+    rules:
+      - alert: LLMServeRequestsRejected
+        expr: increase(llmserve_http_status_429_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLMServe-Lite observed rejected requests"
+      - alert: LLMServeQueueBacklog
+        expr: llmserve_queue_depth > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLMServe-Lite queue remains nonempty"

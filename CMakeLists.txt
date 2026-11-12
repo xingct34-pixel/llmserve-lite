@@ -7,7 +7,7 @@ option(LLMSERVE_WITH_LLAMA "Build pinned llama.cpp CPU backend" OFF)
 option(LLMSERVE_SANITIZE "ASan and UBSan for application code" OFF)
 find_package(Threads REQUIRED)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
-add_library(serve_core src/core.cpp src/engine.cpp)
+add_library(serve_core src/core.cpp src/engine.cpp src/observability.cpp)
 target_include_directories(serve_core PUBLIC include third_party)
 target_link_libraries(serve_core PUBLIC Threads::Threads)
 target_compile_options(serve_core PRIVATE -Wall -Wextra -Wpedantic)
@@ -42,6 +42,18 @@ if(BUILD_TESTING)
   add_executable(core_tests tests/core_tests.cpp)
   target_link_libraries(core_tests PRIVATE serve_core)
   add_test(NAME core COMMAND core_tests)
+
+
+  # 模块：观测验收：校验累计桶、标准文本指标和混合负载统计
+
+
+  add_executable(observability_tests tests/observability_tests.cpp)
+  target_link_libraries(observability_tests PRIVATE serve_core)
+  target_compile_options(observability_tests PRIVATE -UNDEBUG)
+  add_test(NAME observability COMMAND observability_tests)
+  add_test(NAME traffic_helpers COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_traffic.py)
+
+
   add_test(NAME http COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration.py $<TARGET_FILE:llmserve>)
   add_test(NAME download_offline COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/download_tests.py)
   set_tests_properties(download_offline PROPERTIES TIMEOUT 15)
@@ -49,5 +61,18 @@ if(BUILD_TESTING)
   if(LLMSERVE_WITH_LLAMA)
     add_test(NAME real_model_optional COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/real_model.py $<TARGET_FILE:llmserve>)
     set_tests_properties(real_model_optional PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1800)
+  endif()
+endif()
+
+
+# 模块：真实前缀缓存验收：单独加载固定模型，与关闭缓存的输出逐项比较
+
+
+if(BUILD_TESTING AND LLMSERVE_WITH_LLAMA)
+  add_executable(prefix_cache_tests tests/prefix_cache_tests.cpp)
+  target_link_libraries(prefix_cache_tests PRIVATE serve_core)
+  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/models/qwen2.5-0.5b-instruct-q4_k_m.gguf)
+    add_test(NAME real_prefix_cache COMMAND prefix_cache_tests ${CMAKE_CURRENT_SOURCE_DIR}/models/qwen2.5-0.5b-instruct-q4_k_m.gguf)
+    set_tests_properties(real_prefix_cache PROPERTIES TIMEOUT 180)
   endif()
 endif()

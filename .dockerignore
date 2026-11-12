@@ -1,0 +1,17 @@
+# 模块：上下文边界：默认全部排除，只传入构建Mock所需的源码与许可证
+**
+!CMakeLists.txt
+!include/
+!include/**
+!src/
+!src/**
+!configs/
+!configs/mock.json
+!third_party/
+!third_party/httplib/
+!third_party/httplib/**
+!third_party/nlohmann/
+!third_party/nlohmann/**
+!deploy/
+!deploy/Dockerfile
+!LICENSE

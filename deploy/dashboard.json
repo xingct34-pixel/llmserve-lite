@@ -1,0 +1,16 @@
+{
+  "title": "LLMServe-Lite CPU",
+  "uid": "llmserve-lite-cpu",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["llmserve", "cpu"],
+  "refresh": "5s",
+  "time": {"from": "now-15m", "to": "now"},
+  "templating": {"list": [{"name": "DS_PROMETHEUS", "type": "datasource", "query": "prometheus"}]},
+  "panels": [
+    {"id": 1, "title": "Queue and active", "type": "timeseries", "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8}, "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"}, "targets": [{"refId": "A", "expr": "llmserve_queue_depth"}, {"refId": "B", "expr": "llmserve_active"}]},
+    {"id": 2, "title": "Completions and rejections / second", "type": "timeseries", "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8}, "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"}, "targets": [{"refId": "A", "expr": "rate(llmserve_completed_total[1m])"}, {"refId": "B", "expr": "rate(llmserve_http_status_429_total[1m])"}]},
+    {"id": 3, "title": "Successful execution p95 seconds", "type": "timeseries", "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8}, "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"}, "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(llmserve_success_execution_seconds_bucket[5m])))"}]},
+    {"id": 4, "title": "Reused prompt tokens / second", "type": "timeseries", "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8}, "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"}, "targets": [{"refId": "A", "expr": "rate(llmserve_cached_prompt_tokens_total[1m])"}]}
+  ]
+}

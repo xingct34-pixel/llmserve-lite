@@ -7,9 +7,13 @@
 #endif
 
 namespace serve {
+
+
 // 模块：文本边界：缓存跨token的UTF-8字节并替换非法序列
 // 一个token可能只含中文字符的部分UTF-8字节；未凑齐就留在buffer，避免SSE发出半个字符。
 // 首字节判定1~4字节长度，后续字节须以二进制10开头；非法或最终残缺序列替换为U+FFFD。
+
+
 std::string complete_utf8(std::string& buffer, bool flush) {
     size_t pos = 0;
     std::string out;
@@ -56,15 +60,21 @@ std::string complete_utf8(std::string& buffer, bool flush) {
 
 namespace {
 
+
 // 模块：模拟计数：仅为Mock估计输入字符数量
+
+
 size_t codepoints(const std::string& s) {
     return std::count_if(s.begin(), s.end(), [](unsigned char c) {
         return (c & 0xc0) != 0x80;
     });
 }
 
+
 // 模块：模拟引擎：固定文本、模拟延迟及故障注入
 // Mock只产生固定文本并模拟延迟，用于服务层测试；其片段数和耗时不能当成真实模型性能。
+
+
 class MockEngine final : public Engine {
     Config c_;
 
@@ -111,7 +121,10 @@ public:
 };
 #ifdef LLMSERVE_WITH_LLAMA
 
+
 // 模块：后端生命周期：初始化和释放llama.cpp全局后端
+
+
 struct Backend {
     Backend() {
         llama_backend_init();
@@ -122,14 +135,24 @@ struct Backend {
     }
 };
 
+
 // 模块：CPU模型引擎：持有唯一模型和可复用context
 // RAII管理资源：成员按声明的反序销毁，先context、再model、最后backend。
 // 模型/context启动时创建一次；后续请求复用，但不会共享对话历史。
+
+
 class LlamaEngine final : public Engine {
     Backend backend_;
     std::unique_ptr<llama_model, decltype(&llama_model_free)> model_{nullptr, llama_model_free};
     std::unique_ptr<llama_context, decltype(&llama_free)> ctx_{nullptr, llama_free};
     Config c_;
+
+
+    // 模块：前缀缓存身份：只保存上一成功请求的输入token，权重和模板固定在同一引擎
+
+
+    std::vector<llama_token> previous_prompt_;
+
 
 public:
     explicit LlamaEngine(Config c) : c_(std::move(c)) {
@@ -161,9 +184,15 @@ public:
                         const std::function<bool(const std::string&)>& emit,
                         const std::function<bool()>& stop) override {
         const auto begin = Clock::now();
+
+
         // 模块：1. 请求准备：清理上次状态并应用聊天模板
         // 清空上一请求的KV等上下文状态，保持请求隔离；这不等于重新加载模型权重。
-        llama_memory_clear(llama_get_memory(ctx_.get()), true);
+        // 缓存开关默认为关闭。旧请求的KV在分词后按共同前缀裁剪，绝不直接沿用全部历史。
+
+
+        auto previous = std::move(previous_prompt_);
+        previous_prompt_.clear(); // 任意中途失败都会使下一次请求走完整prefill
         llama_chat_message msg = {"user", r.prompt.c_str()};
         const char* tmpl = llama_model_chat_template(model_.get(), nullptr);
         std::vector<char> formatted(r.prompt.size() * 2 + 1024);
@@ -179,7 +208,10 @@ public:
                 throw std::runtime_error("chat template formatting failed");
         }
 
+
         // 模块：2. 分词与容量：按真实token数检查上下文预留
+
+
         auto vocab = llama_model_get_vocab(model_.get());
         // 先传空缓冲查询所需token数（不足时返回负数），按-n分配后再真正分词。
         int n = llama_tokenize(vocab, formatted.data(), count, nullptr, 0, true, true);
@@ -195,7 +227,26 @@ public:
         if (n + r.max_tokens > int(llama_n_ctx(ctx_.get())))
             throw std::invalid_argument("templated input plus output reservation exceeds context");
 
+
+        // 模块：前缀匹配：逐token比较，至少重算输入最后一个token以取得本次logits
+        // 不是字符串包含关系；共同前缀之外的生成历史必须删除。删除失败则安全退回全量计算。
+
+
+        size_t reused = 0;
+        const size_t limit =
+            std::min({previous.size(), tokens.size() - 1, size_t(c_.prefix_cache_tokens)});
+        while (reused < limit && previous[reused] == tokens[reused])
+            ++reused;
+        if (!reused || !llama_memory_seq_rm(llama_get_memory(ctx_.get()), 0, reused, -1)) {
+            reused = 0;
+            llama_memory_clear(llama_get_memory(ctx_.get()), true);
+        }
+        const auto prepare_end = Clock::now();
+
+
         // 模块：3. 取消绑定：让底层计算检查停止并在返回前解除回调
+
+
         auto abort = [](void* data) -> bool {
             return (*static_cast<const std::function<bool()>*>(data))();
         };
@@ -210,23 +261,35 @@ public:
             }
         } reset{ctx_.get()};
 
+
         // 模块：4. Prefill：分块处理完整提示词以建立上下文
         // Prefill：分块处理整段输入并建立KV缓存；每块之间可响应取消。
-        for (int at = 0; at < n; at += 128) {
+
+
+        const auto prefill_begin = Clock::now();
+        for (int at = int(reused); at < n; at += 128) {
             if (stop())
                 return {n, 0, "cancelled"};
             auto batch = llama_batch_get_one(tokens.data() + at, std::min(128, n - at));
             if (llama_decode(ctx_.get(), batch) != 0)
                 throw std::runtime_error("prefill decode failed or aborted");
         }
+        const auto prefill_end = Clock::now();
+
+
         // 模块：5. Decode：逐token采样并投递完整UTF-8文本
         // 贪心采样每次选当前最高分token；EOG表示模型主动结束，不计入输出token数。
+
+
         std::unique_ptr<llama_sampler, decltype(&llama_sampler_free)> sampler(
             llama_sampler_init_greedy(), llama_sampler_free);
         if (!sampler)
             throw std::runtime_error("sampler allocation failed");
         Generation g;
         g.prompt_tokens = n;
+        g.cached_prompt_tokens = int(reused);
+        g.prompt_prepare_ms = millis(begin, prepare_end);
+        g.prefill_compute_ms = millis(prefill_begin, prefill_end);
         // 此处prefill_ms还含清缓存、模板、分词与sampler准备，不是单独矩阵计算时间。
         const auto decode_begin = Clock::now();
         g.prefill_ms = millis(begin, decode_begin);
@@ -264,13 +327,21 @@ public:
             emit(tail);
         // decode_ms含采样、文本转换和emit背压等待，不能解释为纯CPU算子执行时间。
         g.decode_ms = millis(decode_begin, Clock::now());
+        if (c_.prefix_cache_tokens && !stop()) {
+            // 只在本次请求正常结束后允许复用；缓存元数据和KV容量均受context限制。
+            tokens.resize(std::min(tokens.size(), size_t(c_.prefix_cache_tokens)));
+            previous_prompt_ = std::move(tokens);
+        }
         return g;
     }
 };
 #endif
 }
 
+
 // 模块：引擎工厂：依据配置创建Mock或CPU后端
+
+
 std::unique_ptr<Engine> make_engine(const Config& c) {
     if (c.engine == "mock")
         return std::make_unique<MockEngine>(c);
