@@ -76,3 +76,16 @@ if(BUILD_TESTING AND LLMSERVE_WITH_LLAMA)
     set_tests_properties(real_prefix_cache PROPERTIES TIMEOUT 180)
   endif()
 endif()
+
+
+# 模块：数值归因：只在CPU后端构建原生对照程序，独立于在线服务
+
+
+if(LLMSERVE_WITH_LLAMA AND BUILD_TESTING)
+  add_executable(prefix_numeric_probe bench/prefix_numerics.cpp)
+  target_link_libraries(prefix_numeric_probe PRIVATE serve_core)
+  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/models/qwen2.5-0.5b-instruct-q4_k_m.gguf)
+    add_test(NAME real_prefix_numerics COMMAND prefix_numeric_probe ${CMAKE_CURRENT_SOURCE_DIR}/models/qwen2.5-0.5b-instruct-q4_k_m.gguf)
+    set_tests_properties(real_prefix_numerics PROPERTIES TIMEOUT 180)
+  endif()
+endif()

@@ -1,0 +1,21 @@
+# 模块：构建边界：模型、日志、Git凭据和编译产物均不进入镜像上下文
+**
+!LICENSE
+!CMakeLists.txt
+!include/
+!include/**
+!src/
+!src/**
+!configs/
+!configs/cpu.json
+!third_party/
+!third_party/httplib/
+!third_party/httplib/**
+!third_party/nlohmann/
+!third_party/nlohmann/**
+!third_party/llama.cpp/
+!third_party/llama.cpp/**
+third_party/llama.cpp/.git/**
+third_party/llama.cpp/build/**
+!deploy/
+!deploy/Dockerfile.cpu

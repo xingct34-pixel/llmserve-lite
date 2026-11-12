@@ -1,0 +1,46 @@
+name: Real CPU container and monitoring
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'CMakeLists.txt'
+      - 'deploy/**'
+      - 'bench/platform_smoke.py'
+      - 'scripts/fetch_model.py'
+      - '.github/workflows/cpu-platform.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'CMakeLists.txt'
+      - 'deploy/**'
+      - 'bench/platform_smoke.py'
+      - '.github/workflows/cpu-platform.yml'
+permissions:
+  contents: read
+jobs:
+  cpu-platform:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Prepare exactly pinned CPU source and the single authorized official model
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch b6500 https://github.com/ggml-org/llama.cpp third_party/llama.cpp
+          test "$(git -C third_party/llama.cpp rev-parse HEAD)" = a7a98e0fffed794396b3fbad4dcdbbc184963645
+          python3 scripts/fetch_model.py
+      - name: Build CPU image without embedded weights
+        run: docker build -f deploy/Dockerfile.cpu -t llmserve-cpu:test .
+      - name: Real inference, Prometheus scraping, Grafana provisioning and internal alert state
+        run: python3 bench/platform_smoke.py --image llmserve-cpu:test --output results/platform-ci.json
+      - name: Preserve only the small JSON verification report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cpu-platform-report
+          path: results/platform-ci.json
+          if-no-files-found: ignore
+          retention-days: 7

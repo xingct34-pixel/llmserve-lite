@@ -1,0 +1,468 @@
+{
+  "exit": 0,
+  "rows": [
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 113272,
+        "kl": 0.0066528649548354595,
+        "max_abs": 0.4095801115036011,
+        "reference_argmax": 113272,
+        "rms": 0.08429637082461425,
+        "same_argmax": true
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 113272,
+        "kl": 0.011085458004743046,
+        "max_abs": 0.4825706481933594,
+        "reference_argmax": 113272,
+        "rms": 0.09819747855791183,
+        "same_argmax": true
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 113272,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 113272,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 0
+    },
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 104949,
+        "kl": 1.5292760500865471e-06,
+        "max_abs": 0.387345552444458,
+        "reference_argmax": 104949,
+        "rms": 0.08072610553575243,
+        "same_argmax": true
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 104949,
+        "kl": 1.7947646674041952e-06,
+        "max_abs": 0.3596835136413574,
+        "reference_argmax": 104949,
+        "rms": 0.07673503126438677,
+        "same_argmax": true
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 104949,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 104949,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 1
+    },
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 91680,
+        "kl": 0.000276454376304014,
+        "max_abs": 0.32366228103637695,
+        "reference_argmax": 91680,
+        "rms": 0.06633538558755529,
+        "same_argmax": true
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 91680,
+        "kl": 0.0005842562931378866,
+        "max_abs": 0.3687114715576172,
+        "reference_argmax": 91680,
+        "rms": 0.08168522355712815,
+        "same_argmax": true
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 91680,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 91680,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 2
+    },
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 58814,
+        "kl": 9.690264611471947e-06,
+        "max_abs": 0.3993844985961914,
+        "reference_argmax": 58814,
+        "rms": 0.0786657219900935,
+        "same_argmax": true
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 58814,
+        "kl": 3.959343921632957e-06,
+        "max_abs": 0.3664565086364746,
+        "reference_argmax": 58814,
+        "rms": 0.07448905506874183,
+        "same_argmax": true
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 58814,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 58814,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 3
+    },
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 99796,
+        "kl": 4.260442831018632e-06,
+        "max_abs": 0.39550840854644775,
+        "reference_argmax": 99796,
+        "rms": 0.07699255209792297,
+        "same_argmax": true
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 99796,
+        "kl": 2.635805553040265e-06,
+        "max_abs": 0.4563674330711365,
+        "reference_argmax": 99796,
+        "rms": 0.0773821786675429,
+        "same_argmax": true
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 99796,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 99796,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 4
+    },
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 104404,
+        "kl": 0.004487687382006171,
+        "max_abs": 0.4292919635772705,
+        "reference_argmax": 104404,
+        "rms": 0.08652577188546204,
+        "same_argmax": true
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 104404,
+        "kl": 0.0015787004807350307,
+        "max_abs": 0.3935964107513428,
+        "reference_argmax": 104404,
+        "rms": 0.08688034010798078,
+        "same_argmax": true
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 104404,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 104404,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 5
+    },
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 99652,
+        "kl": 0.002050659802255356,
+        "max_abs": 0.33439159393310547,
+        "reference_argmax": 99652,
+        "rms": 0.07172618712771385,
+        "same_argmax": true
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 99652,
+        "kl": 0.002736770617906963,
+        "max_abs": 0.39197301864624023,
+        "reference_argmax": 99652,
+        "rms": 0.08220175511885823,
+        "same_argmax": true
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 99652,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 99652,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 6
+    },
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 18493,
+        "kl": 0.0017290003259030457,
+        "max_abs": 0.42025256156921387,
+        "reference_argmax": 18493,
+        "rms": 0.09230389556220728,
+        "same_argmax": true
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 18493,
+        "kl": 0.0015957917529827374,
+        "max_abs": 0.4121619462966919,
+        "reference_argmax": 18493,
+        "rms": 0.08783982058841552,
+        "same_argmax": true
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 18493,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 18493,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 7
+    },
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 104034,
+        "kl": 0.0018942665626767467,
+        "max_abs": 0.3360457420349121,
+        "reference_argmax": 104034,
+        "rms": 0.07658691786854999,
+        "same_argmax": true
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 104034,
+        "kl": 0.0023261734426832026,
+        "max_abs": 0.40932226181030273,
+        "reference_argmax": 104034,
+        "rms": 0.08894350189950742,
+        "same_argmax": true
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 104034,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 104034,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 8
+    },
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 101925,
+        "kl": 0.002035360173576539,
+        "max_abs": 0.38513636589050293,
+        "reference_argmax": 101925,
+        "rms": 0.08875385941512708,
+        "same_argmax": true
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 101925,
+        "kl": 0.0018171426484729753,
+        "max_abs": 0.36814236640930176,
+        "reference_argmax": 101925,
+        "rms": 0.08428809063567098,
+        "same_argmax": true
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 101925,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 101925,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 9
+    },
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 85106,
+        "kl": 0.0015286812805018696,
+        "max_abs": 0.33820343017578125,
+        "reference_argmax": 85106,
+        "rms": 0.07298963417489725,
+        "same_argmax": true
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 85106,
+        "kl": 0.0012431938286168258,
+        "max_abs": 0.34154319763183594,
+        "reference_argmax": 85106,
+        "rms": 0.08089344925677446,
+        "same_argmax": true
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 85106,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 85106,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 10
+    },
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 104183,
+        "kl": 0.0020388290655721287,
+        "max_abs": 0.3738449811935425,
+        "reference_argmax": 104183,
+        "rms": 0.0701276598475998,
+        "same_argmax": true
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 104183,
+        "kl": 0.0016196656274307566,
+        "max_abs": 0.38421809673309326,
+        "reference_argmax": 104183,
+        "rms": 0.07233549181855943,
+        "same_argmax": true
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 104183,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 104183,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 11
+    },
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 113862,
+        "kl": 0.002901591889360189,
+        "max_abs": 0.4485030174255371,
+        "reference_argmax": 113862,
+        "rms": 0.09229987142804189,
+        "same_argmax": true
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 113862,
+        "kl": 0.003825169063639579,
+        "max_abs": 0.41732168197631836,
+        "reference_argmax": 113862,
+        "rms": 0.08263956985507231,
+        "same_argmax": true
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 113862,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 113862,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 12
+    },
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 3837,
+        "kl": 0.0011610789062822665,
+        "max_abs": 0.43508005142211914,
+        "reference_argmax": 3837,
+        "rms": 0.08448077814366867,
+        "same_argmax": true
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 3837,
+        "kl": 0.0011769291141154944,
+        "max_abs": 0.41089820861816406,
+        "reference_argmax": 3837,
+        "rms": 0.0910067841886612,
+        "same_argmax": true
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 3837,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 3837,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 13
+    },
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 23031,
+        "kl": 0.0019282698333669135,
+        "max_abs": 0.40764713287353516,
+        "reference_argmax": 23031,
+        "rms": 0.07828708609936039,
+        "same_argmax": true
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 23031,
+        "kl": 0.0020952523755105056,
+        "max_abs": 0.3677706718444824,
+        "reference_argmax": 23031,
+        "rms": 0.07931215831961745,
+        "same_argmax": true
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 23031,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 23031,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 14
+    },
+    {
+      "full_vs_cached": {
+        "candidate_argmax": 103983,
+        "kl": 0.003680742164073128,
+        "max_abs": 0.3546891212463379,
+        "reference_argmax": 99607,
+        "rms": 0.07871460074077985,
+        "same_argmax": false
+      },
+      "full_vs_uncached_split": {
+        "candidate_argmax": 103983,
+        "kl": 0.0022353917399269047,
+        "max_abs": 0.38344788551330566,
+        "reference_argmax": 99607,
+        "rms": 0.07474830583669793,
+        "same_argmax": false
+      },
+      "same_shape_causal_reference_vs_cached": {
+        "candidate_argmax": 103983,
+        "kl": 0.0,
+        "max_abs": 0.0,
+        "reference_argmax": 103983,
+        "rms": 0.0,
+        "same_argmax": true
+      },
+      "shared_tokens": 9,
+      "step": 15
+    },
+    {
+      "cached_argmax_differences": 1,
+      "max_same_shape_error": 0.0,
+      "split_argmax_differences": 1,
+      "summary": true,
+      "uncached_partition_changes_logits": true
+    }
+  ],
+  "summary": {
+    "cached_argmax_differences": 1,
+    "max_same_shape_error": 0.0,
+    "split_argmax_differences": 1,
+    "summary": true,
+    "uncached_partition_changes_logits": true
+  },
+  "binary_sha256": "dbdb75e23c57aec6e266ee544268e6ed8e3365e665181f8f573379ee15c7e005"
+}
