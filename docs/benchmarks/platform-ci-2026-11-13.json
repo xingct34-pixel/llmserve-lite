@@ -1,0 +1,170 @@
+{
+  "engine": "llama",
+  "model_sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+  "prometheus_image": "prom/prometheus:v3.16.0",
+  "grafana_image": "grafana/grafana:13.3.1",
+  "scope": "Linux host-network CPU containers; internal alert state only; no notification delivery",
+  "grafana_health": {
+    "database": "ok",
+    "version": "13.3.1",
+    "commit": "da3aa3ff574e7dbbf808c66b6daa744defed0441"
+  },
+  "dashboard_panels": 4,
+  "internal_alert_fired": true,
+  "internal_alert_resolved": true,
+  "requests": {
+    "total": 9,
+    "success": 5,
+    "rejected_429": 4,
+    "other_failures": 0
+  },
+  "scraped_completed": [
+    {
+      "metric": {
+        "__name__": "llmserve_completed_total",
+        "instance": "127.0.0.1:8080",
+        "job": "llmserve-lite"
+      },
+      "value": [
+        1794487124.549,
+        "5"
+      ]
+    }
+  ],
+  "scraped_histogram_count": [
+    {
+      "metric": {
+        "__name__": "llmserve_success_execution_seconds_count",
+        "instance": "127.0.0.1:8080",
+        "job": "llmserve-lite"
+      },
+      "value": [
+        1794487124.549,
+        "5"
+      ]
+    }
+  ],
+  "server_metrics": {
+    "accepted": 5,
+    "active": 0,
+    "cached_prompt_tokens": 0,
+    "cancelled": 0,
+    "completed": 5,
+    "engine": "llama",
+    "failed": 0,
+    "histograms": {
+      "decode": {
+        "buckets": [
+          0,
+          0,
+          0,
+          0,
+          4,
+          4,
+          4,
+          5,
+          5,
+          5
+        ],
+        "count": 5,
+        "sum_seconds": 13.558667559999998
+      },
+      "execution": {
+        "buckets": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          4,
+          4,
+          5,
+          5,
+          5
+        ],
+        "count": 5,
+        "sum_seconds": 17.295391999999996
+      },
+      "first_output": {
+        "buckets": [
+          0,
+          0,
+          0,
+          0,
+          4,
+          4,
+          5,
+          5,
+          5,
+          5
+        ],
+        "count": 5,
+        "sum_seconds": 3.791603525
+      },
+      "prefill_compute": {
+        "buckets": [
+          0,
+          0,
+          0,
+          0,
+          4,
+          4,
+          5,
+          5,
+          5,
+          5
+        ],
+        "count": 5,
+        "sum_seconds": 3.7110915509999995
+      },
+      "queue": {
+        "buckets": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          5,
+          5,
+          5
+        ],
+        "count": 5,
+        "sum_seconds": 61.733083428
+      }
+    },
+    "http_requests_started": 9,
+    "http_responses_logged": 9,
+    "http_status_429": 4,
+    "http_status_4xx": 4,
+    "http_status_5xx": 0,
+    "inference_workers": 1,
+    "output_tokens": 96,
+    "prompt_tokens": 87,
+    "queue_depth": 0,
+    "queue_peak": 4,
+    "queued_output_budget": 0,
+    "queued_output_tokens": 0,
+    "rejected": 0,
+    "timed_out": 0
+  },
+  "image_digests": {
+    "llmserve-cpu:test": [],
+    "prom/prometheus:v3.16.0": [
+      "prom/prometheus@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06"
+    ],
+    "grafana/grafana:13.3.1": [
+      "grafana/grafana@sha256:0615ec4fbd4072004b7d86b46ded63013a74b7d6eb1119273dd89e8fa25c13cf"
+    ]
+  },
+  "service_exit_code": 0,
+  "evidence": {
+    "commit": "b9d30d850adf9502f9de55e0c57e2627ee10f0fa",
+    "run_id": 43219372929,
+    "job_id": 131186664561,
+    "artifact_id": 13945836399,
+    "source": "authenticated GitHub job log JSON report",
+    "url": "https://github.com/xingct34-pixel/llmserve-lite/actions/runs/43219372929"
+  }
+}
