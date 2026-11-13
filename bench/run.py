@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
+# LLMServe-Lite 本地推理服务 | bench/run.py
+# 压测客户端通过本地 HTTP 发送流式请求，按客户端时钟记录第一段文字和整次完成时间。
+# 它还读取服务进程的内存、退出码和服务端指标。结果保留引擎身份，便于区分模拟与真实生成。
+
+
 # 模块：服务基准：测量SSE请求、并发和长时间稳定性
+
+
 """Reproducible low-resource benchmark and soak. No external Python packages."""
 import argparse
 import concurrent.futures
@@ -20,6 +27,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 # 模块：大文件校验：用固定缓冲避免整文件载入
+
+
 def sha256_file(path):
     """Hash large weights with a fixed 1 MiB read buffer."""
     # 大权重按1 MiB分块校验；降低的是基准工具读文件的内存，不是C++推理服务的内存。
@@ -31,6 +40,8 @@ def sha256_file(path):
 
 
 # 模块：分位统计：从排序样本中取得指定位置
+
+
 def percentile(values, p):
     if not values:
         return None
@@ -40,6 +51,8 @@ def percentile(values, p):
 
 
 # 模块：指标读取：请求本地服务的JSON接口
+
+
 def get(port, route):
     conn = http.client.HTTPConnection('127.0.0.1', port, timeout=10)
     try:
@@ -53,6 +66,8 @@ def get(port, route):
 
 
 # 模块：请求测量：读取SSE并记录完成状态和首次输出时间
+
+
 def request(port, prompt, output):
     row = {'status': None, 'success': False, 'output_tokens': 0}
     # 客户端TTFT从发起请求前算到读到首个非空delta，含排队和HTTP传输/读取开销。
@@ -103,6 +118,8 @@ def request(port, prompt, output):
 
 
 # 模块：资源采样：读取进程与系统内存指标
+
+
 def snapshot(pid):
     values = {}
     for line in Path(f'/proc/{pid}/status').read_text().splitlines():
@@ -116,6 +133,8 @@ def snapshot(pid):
 
 
 # 模块：执行入口：读取参数并组织该工具的完整流程
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--binary', default='build/mock/llmserve')

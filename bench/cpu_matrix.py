@@ -1,4 +1,11 @@
+# LLMServe-Lite 本地推理服务 | bench/cpu_matrix.py
+# 在真实模型上分组改变 CPU 计算线程数和客户端并发度，复用 run.py 的请求与采样函数。
+# 同一模型、同一组输入配不同参数，可以观察多等一会儿来自排队还是生成变慢。
+
+
 # 模块：真实CPU实验：组织线程数与客户端并发测量
+
+
 """Controlled real-model validation. Standard library only; no downloads."""
 import argparse, concurrent.futures, contextlib, hashlib, http.client, importlib.util, json, signal, socket, subprocess, tempfile, threading, time
 from pathlib import Path
@@ -10,6 +17,8 @@ spec.loader.exec_module(bench)
 
 
 # 模块：服务生命周期：启动测试子进程并保证退出清理
+
+
 @contextlib.contextmanager
 def server(binary, base, out, label, **changes):
     cfg = dict(base, **changes)
@@ -72,6 +81,8 @@ def server(binary, base, out, label, **changes):
 
 
 # 模块：执行入口：读取参数并组织该工具的完整流程
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--soak-seconds', type=int, default=600)
@@ -97,6 +108,12 @@ def main():
     short = '请按序号列出十个编程学习建议。'
     long = ('背景资料：服务器需要管理请求队列、超时、取消和有限的内存。' * 20) + '请总结这些要求。'
     try:
+
+
+        # 模块：改变引擎计算线程数
+        # 这里调的是服务处理一个请求时可用的 CPU 线程；后面的并发实验才改变客户端数量。
+
+
         for threads in [1, 2, 4, 6]:
             with server(binary, base, out, 'threads-' + str(threads), threads=threads) as (
                 port,

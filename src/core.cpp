@@ -1,3 +1,9 @@
+// LLMServe-Lite 本地推理服务 | src/core.cpp
+// 实现 serve.hpp 里的 Config、Job 和 Scheduler。HTTP 线程提交 Job 后，可以继续接待别人；
+// 一个推理 worker 从等待队列取出它，调用 Engine::generate，把文字片段写进该 Job 的事件队列。
+// 一条队列存“还没开始的请求”，另一条存“这个请求已经生成、尚未被读走的文字”。
+
+
 #include "serve.hpp"
 #include <algorithm>
 #include <fstream>

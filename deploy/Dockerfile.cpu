@@ -1,3 +1,6 @@
+# LLMServe-Lite 本地推理服务 | deploy/Dockerfile.cpu
+# 构建支持 llama.cpp 的 CPU 服务镜像。构建阶段使用预先准备的固定版本源码；
+# 运行时从挂载路径读取模型。镜像可以复用，权重文件单独管理。
 
 
 # 模块：CPU构建：源码须先按dependencies.lock.json固定版本准备，不在镜像里下载权重

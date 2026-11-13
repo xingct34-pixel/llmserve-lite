@@ -1,3 +1,8 @@
+// LLMServe-Lite 本地推理服务 | tests/prefix_cache_tests.cpp
+// 在真实模型上比较开启和关闭前缀缓存的请求，记录复用数量和文本差异。
+// 还主动中止请求、发送超长输入，再检查下一次生成是否带入前一次留下的状态。
+
+
 #include "serve.hpp"
 #include <iostream>
 #include <stdexcept>
@@ -71,6 +76,12 @@ int main(int argc, char** argv) {
             if (stop_checks <= 1)
                 throw; // 只接受已触发stop检查的底层取消错误
         }
+
+
+        // 模块：取消后的第一条请求
+        // 复用量应回到零，再将输出与干净上下文的基线比较。
+
+
         const auto after_cancel = run(*cached, a);
         if (after_cancel.second.cached_prompt_tokens != 0 || after_cancel.first != full_a.first)
             throw std::runtime_error("cancelled request leaked cached state");

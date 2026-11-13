@@ -1,3 +1,9 @@
+// LLMServe-Lite 本地推理服务 | include/observability.hpp
+// 声明服务的耗时统计接口。Scheduler 在 core.cpp 里记录一次观测，Histogram 按耗时分桶；
+// main.cpp 提供查询入口，src/observability.cpp 负责把快照转成监控工具能读取的格式。
+// 例如 12 毫秒落在上界为 20 毫秒的桶里。服务只需增加计数，运行再久桶数也固定。
+
+
 #pragma once
 #include <nlohmann/json.hpp>
 #include <array>

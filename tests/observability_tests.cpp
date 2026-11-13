@@ -1,3 +1,8 @@
+// LLMServe-Lite 本地推理服务 | tests/observability_tests.cpp
+// 把恰好等于桶上界、超过上界以及无效的耗时送进 Histogram。
+// 对照 json() 导出的累计桶与总次数，能查出一个请求被重复记录或落错桶的问题。
+
+
 #include "observability.hpp"
 #include <cassert>
 #include <cmath>

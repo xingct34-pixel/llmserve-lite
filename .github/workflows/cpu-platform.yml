@@ -1,3 +1,8 @@
+# LLMServe-Lite 本地推理服务 | .github/workflows/cpu-platform.yml
+# 在 GitHub 的 Linux runner 上准备固定版本的 llama.cpp 和指定 GGUF，构建 CPU 镜像，
+# 再执行 platform_smoke.py 连通真实推理与监控，最后保留这一轮的小型 JSON 验证报告。
+
+
 name: Real CPU container and monitoring
 on:
   push:

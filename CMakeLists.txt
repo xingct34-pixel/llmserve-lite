@@ -1,3 +1,8 @@
+# LLMServe-Lite 本地推理服务 | CMakeLists.txt
+# 把调度、引擎和监控实现编成 serve_core，再让 llmserve 和测试程序链接它。
+# 启用 LLMSERVE_WITH_LLAMA 时才编译固定版本的 CPU 后端；CTest 依据构建选项和本地文件登记测试。
+
+
 cmake_minimum_required(VERSION 3.20)
 project(LLMServeLite VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
@@ -7,6 +12,12 @@ option(LLMSERVE_WITH_LLAMA "Build pinned llama.cpp CPU backend" OFF)
 option(LLMSERVE_SANITIZE "ASan and UBSan for application code" OFF)
 find_package(Threads REQUIRED)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+
+# 模块：共享核心
+# 主程序和单元测试链接同一份调度、引擎与指标实现。
+
+
 add_library(serve_core src/core.cpp src/engine.cpp src/observability.cpp)
 target_include_directories(serve_core PUBLIC include third_party)
 target_link_libraries(serve_core PUBLIC Threads::Threads)

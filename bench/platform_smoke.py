@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# LLMServe-Lite 本地推理服务 | bench/platform_smoke.py
+# 从服务外部检查真实 CPU 容器、Prometheus 和 Grafana 能否连起来。
+# 脚本向本机服务施加负载，再查指标、内部告警状态和仪表盘接口，在收尾时释放自己创建的容器。
+
+
 """Run only owned Linux containers; verify real inference, monitoring and internal alerts."""
 import argparse
 import concurrent.futures

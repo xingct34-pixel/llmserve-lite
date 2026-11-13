@@ -1,3 +1,8 @@
+# LLMServe-Lite 本地推理服务 | tests/test_traffic.py
+# 给 traffic.py 的汇总函数传入事先知道结果的请求样本。
+# 有人按时完成、有人迟到、有人收到 429；核对分母，才能正确解释压测报告的达标率。
+
+
 import sys
 from pathlib import Path
 import unittest

@@ -1,3 +1,8 @@
+# LLMServe-Lite 本地推理服务 | tests/integration.py
+# 启动本地 Mock 服务，通过真实 HTTP 连接检查参数、流式响应、拒绝、断连及退出。
+# 先读 server 和 call 掌握怎样发请求，再选一个 test 对照 main.cpp 的对应路由。
+
+
 """Standard-library HTTP tests. Starts/stops only child servers created by this test."""
 
 import concurrent.futures
@@ -57,6 +62,10 @@ def server(**changes):
                 if process.returncode != 0:
                     log.seek(0)
                     raise AssertionError(f'server exit {process.returncode}: ' + log.read())
+
+
+# 模块：发送一条请求
+# 测试可以选择传 JSON 或原始字节，观察 HTTP 层实际返回的状态和正文。
 
 
 def call(port, data=None, path='/v1/completions', raw=None):
@@ -226,6 +235,11 @@ class HTTPTests(unittest.TestCase):
                 wait_metric(port, 'active', 1)
                 self.assertEqual(call(port, {'prompt': 'queued', 'max_tokens': 1})[0], 504)
                 self.assertEqual(active.result()[0], 200)
+
+
+    # 模块：验证退出与恢复
+    # 让连接先断开、服务再退出，检查其余任务能否结束。
+
 
     def test_disconnect_and_shutdown(self):
         with server(mock_delay_ms=15) as (port, process):

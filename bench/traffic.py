@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# LLMServe-Lite 本地推理服务 | bench/traffic.py
+# 按预设时间间隔交替发送长短请求。即使服务很忙，计划到达的请求仍纳入负载统计。
+# summarize 同时看首段输出时限与总耗时时限，区分已完成请求和按时完成的请求。
+
+
 """Bounded scheduled-arrival CPU workload, including client scheduling delay and SLO goodput."""
 import argparse
 import concurrent.futures
@@ -55,6 +60,11 @@ def run_workload(port, samples, interval, clients, output_tokens):
         '你好，请简短回答。',
         '请阅读以下说明并简短回答：' + '可靠服务需要明确资源边界。' * 12,
     ]
+
+
+    # 模块：记录计划与实际开始的差
+    # due 是原定发送时刻；客户端线程晚开始也会占用用户等待的时间。
+
 
     def send(index, due):
         lag_ms = max(0, (time.monotonic() - due) * 1000)

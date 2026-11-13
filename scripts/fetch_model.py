@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
+# LLMServe-Lite 本地推理服务 | scripts/fetch_model.py
+# 为真实引擎准备指定的官方 GGUF。先读取仓库版本、文件大小和摘要，再分块下载或续传。
+# 核对 SHA-256 后才把文件作为正式模型使用；tests/download_tests.py 用小段假数据覆盖出错分支。
+
+
 # 模块：模型准备：固定官方来源并校验授权权重的完整性
+
+
 """Fetch only the approved official Q4_K_M file, pin revision and verify LFS SHA-256."""
 import hashlib
 import json
@@ -18,6 +25,8 @@ MIN_BYTES = 100_000_000
 
 
 # 模块：文件校验：计算输入或程序摘要
+
+
 def digest(path):
     result = hashlib.sha256()
     with path.open('rb') as handle:
@@ -27,6 +36,8 @@ def digest(path):
 
 
 # 模块：执行入口：读取参数并组织该工具的完整流程
+
+
 def main():
     folder = ROOT / 'models'
     folder.mkdir(exist_ok=True)
@@ -92,6 +103,12 @@ def main():
         offset = partial.stat().st_size if partial.exists() else 0
         if offset > record['expected_bytes']:
             raise RuntimeError('partial file exceeds expected size')
+
+
+        # 模块：断点续传
+        # offset 是磁盘上已有的字节数，只有尚缺数据时才发下载请求。
+
+
         if offset != record['expected_bytes']:
             headers = {'Range': f'bytes={offset}-'} if offset else {}
             with urllib.request.urlopen(
@@ -119,6 +136,12 @@ def main():
                         handle.write(chunk)
         size = partial.stat().st_size
         sha = digest(partial)
+
+
+        # 模块：检查完整性
+        # 字节数检出短文件；SHA-256 检出长度正确但内容不同的文件。
+
+
         if size != record['expected_bytes'] or sha != record['expected_sha256']:
             raise RuntimeError('download failed byte count / official LFS SHA-256 verification')
         partial.rename(final)

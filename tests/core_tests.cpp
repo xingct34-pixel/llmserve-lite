@@ -1,9 +1,20 @@
+// LLMServe-Lite 本地推理服务 | tests/core_tests.cpp
+// 直接测试 Job 和 Scheduler 的协作。可控的 Gate 引擎可以一直占住 worker，
+// 这样就能稳定制造队列满、执行超时、退出等场景，并核对每个请求收到的最终事件。
+
+
 #include "serve.hpp"
 #include <iostream>
 #include <stdexcept>
 using namespace serve;
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 Json drain(const std::shared_ptr<Job>& j){Json last;while(auto e=j->next())last=*e;return last;}
+
+
+// 模块：控制 worker 的测试引擎
+// 用 release 手动放行。只要第一份任务还在这里等，后续任务就只能排队。
+
+
 class Gate final:public Engine {
 public:
     std::atomic<bool> release{false};
@@ -17,6 +28,12 @@ int main(){
     try {
         Config c;c.mock_delay_ms=0;
         {
+
+
+            // 模块：逐字节模拟输出
+            // 把同一个汉字分几次送进 complete_utf8，凑齐时才应出现文字。
+
+
             std::string bytes="\xe4";
             check(complete_utf8(bytes).empty(),"partial UTF-8 lead byte");
             bytes+="\xbd";check(complete_utf8(bytes).empty(),"partial UTF-8 continuation");

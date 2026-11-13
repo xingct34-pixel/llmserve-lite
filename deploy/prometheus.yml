@@ -1,4 +1,11 @@
+# LLMServe-Lite 本地推理服务 | deploy/prometheus.yml
+# 让 Prometheus 定期抓取本机服务的标准文本指标，同时加载 alerts.yml 的告警规则。
+# 遇到监控无数据，可沿这里的目标地址和指标路径追到 main.cpp 注册的路由。
+
+
 # 模块：本机观测：适用于Linux host-network容器或本机Prometheus，保留服务回环绑定
+
+
 global:
   scrape_interval: 5s
 rule_files:

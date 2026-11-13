@@ -1,3 +1,9 @@
+// LLMServe-Lite 本地推理服务 | src/observability.cpp
+// 实现 observability.hpp 的两个动作：记录一次耗时，以及导出已有统计。
+// 计数时一次只加一个桶；导出时从小到大累加，所以某个时间上限的读数包含所有更快的请求。
+// /metrics/prometheus 把这些累计桶连同总次数、总耗时交给 Prometheus。
+
+
 #include "observability.hpp"
 #include <algorithm>
 #include <cmath>
@@ -72,6 +78,12 @@ std::string prometheus(const nlohmann::json& snapshot) {
             << "# TYPE llmserve_" << key << " gauge\n"
             << "llmserve_" << key << ' ' << snapshot.at(key).get<uint64_t>() << '\n';
     }
+
+
+    // 模块：输出耗时分布
+    // 累计桶告诉监控系统“小于等于这个上限的有多少次”，最后一个桶覆盖全部样本。
+
+
     for (auto it = snapshot.at("histograms").begin(); it != snapshot.at("histograms").end(); ++it) {
         const auto name = "llmserve_success_" + it.key() + "_seconds";
         const auto& h = it.value();

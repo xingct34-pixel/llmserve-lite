@@ -1,3 +1,8 @@
+# LLMServe-Lite 本地推理服务 | tests/download_tests.py
+# 用小段内存数据模拟官方元数据和下载响应，再调用真正的下载脚本逻辑。
+# 刻意返回摘要不匹配、续传失败或错误大小，检查残缺内容能否被挡在正式模型文件之外。
+
+
 """Offline download safety tests. Payload is fake bytes in temporary directories, never a model."""
 import contextlib
 import hashlib
@@ -16,6 +21,11 @@ spec.loader.exec_module(fetch)
 PAYLOAD=b'GGUF-unit-test-fake-bytes'
 REV='a'*40
 SHA=hashlib.sha256(PAYLOAD).hexdigest()
+
+
+# 模块：模拟网络响应
+# 用内存里的字节和响应头代替连接，下载函数仍按平时的方式读取。
+
 
 class Response(io.BytesIO):
     def __init__(self,data,status=200,headers=None):
@@ -82,6 +92,11 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(record['status'],'blocked')
         self.assertFalse((self.folder/fetch.NAME).exists())
         self.assertTrue((self.folder/(fetch.NAME+'.part')).exists())
+
+
+    # 模块：检查续传协议
+    # 服务器如果返回完整文件，直接接在残片后面会把文件写长。
+
 
     def test_refuse_server_ignoring_resume(self):
         (self.folder/(fetch.NAME+'.part')).write_bytes(PAYLOAD[:5])

@@ -1,4 +1,11 @@
+# LLMServe-Lite 本地推理服务 | deploy/alerts.yml
+# Prometheus 载入这组规则后，定时判断 HTTP 429 是否增长、队列是否持续有积压。
+# 表达式描述“发生了什么”，for 指定条件持续多久才进入告警状态。
+
+
 # 模块：告警示例：请求拒绝与队列积压分别提示，阈值须根据实际负载调整
+
+
 groups:
   - name: llmserve
     rules:

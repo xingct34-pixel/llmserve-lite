@@ -1,3 +1,9 @@
+// LLMServe-Lite 本地推理服务 | src/main.cpp
+// 本地推理服务的 HTTP 入口。启动时读配置、创建一个引擎和调度器，之后才接收请求。
+// 同一句提示词有两种回程：普通请求收齐文字后返回 JSON；流式请求通过 SSE 分段发送。
+// 沿一个 POST 往下读，找到提交 Job、等第一个事件、写给客户端这三个交接点。
+
+
 #include "serve.hpp"
 #include <httplib/httplib.h>
 #include <csignal>

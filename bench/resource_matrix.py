@@ -1,4 +1,11 @@
+# LLMServe-Lite 本地推理服务 | bench/resource_matrix.py
+# 让现有服务以不同上下文长度和等待队列容量启动，对每种组合发请求并采集资源。
+# 上下文决定一次生成能容纳多少 token，队列容量决定能有多少请求等待，二者分别记录。
+
+
 # 模块：资源矩阵：比较上下文与等待容量的六种配置
+
+
 """Bounded CPU context/queue resource experiments. Existing model only."""
 import argparse
 import concurrent.futures
@@ -10,6 +17,8 @@ import cpu_matrix as matrix
 
 
 # 模块：执行入口：读取参数并组织该工具的完整流程
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--engine', choices=['mock', 'llama'], default='mock')
@@ -48,6 +57,12 @@ def main():
     try:
         # 3种上下文容量x2种等待容量=6例；每例独立启动服务，模型worker始终只有1个。
         # 配置改变用于观察资源/排队/拒绝，不表示实现了连续批处理或并行模型解码。
+
+
+        # 模块：逐组改变资源上限
+        # 每组都启动对应配置，同模型下才能比较上下文容量和等待队列的影响。
+
+
         for context in (512, 1024, 2048):
             for capacity in (1, 4):
                 label = f'context-{context}-queue-{capacity}'

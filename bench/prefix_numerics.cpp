@@ -1,3 +1,8 @@
+// LLMServe-Lite 本地推理服务 | bench/prefix_numerics.cpp
+// 独立诊断程序。给同一个模型设置几组上下文，分别改变提示词分块方式和前缀复用方式，
+// 在相同后续 token 下比较模型给词表打的原始分数（logits）。这样能区分文本碰巧相同与分数真的相同。
+
+
 #include "serve.hpp"
 #include "llama.h"
 #include <algorithm>

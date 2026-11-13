@@ -1,4 +1,11 @@
+# LLMServe-Lite 本地推理服务 | bench/validate_real.py
+# 启动真实 CPU 服务并等到就绪，单独记录首次请求，随后多次重复同一负载。
+# one 从 SSE 读出文本和时间戳，汇总时把冷启动、热请求与进程峰值内存分开。
+
+
 # 模块：真实模型验收：组织固定条件下的服务验证
+
+
 """Validation only: existing service, cold first request plus repeat CPU measurements."""
 from pathlib import Path
 import hashlib
@@ -37,7 +44,9 @@ report = {
 stop = threading.Event()
 
 
-# 模块：辅助模块：one
+# 模块：单次流式请求：记录首个文本片段、结束事件和客户端耗时
+
+
 def one():
     start = time.monotonic()
     result = {'success': False}

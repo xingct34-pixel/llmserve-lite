@@ -1,3 +1,8 @@
+# LLMServe-Lite 本地推理服务 | .github/workflows/container.yml
+# 构建 Mock 镜像后在本地容器中启动它，从外部请求健康接口和生成接口。
+# 除了验证二进制，还能发现运行镜像缺少配置或启动命令错误等打包问题。
+
+
 name: Mock container smoke
 on: [push, pull_request]
 permissions:

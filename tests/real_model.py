@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# LLMServe-Lite 本地推理服务 | tests/real_model.py
+# 核对本地 GGUF 的摘要，然后启动 CPU 服务，交替发送普通和流式请求。
+# 一次成功要看到实际文本或符合协议的流结束标志。缺少已验证模型时用返回码 77 告知 CTest 跳过。
+
+
 """Optional real GGUF smoke test. Never downloads weights; 77 means skipped."""
 import hashlib
 import http.client
@@ -55,6 +60,12 @@ def main():
                     time.sleep(.1)
                 else:
                     raise RuntimeError('real engine startup timeout')
+
+
+                # 模块：验证两种响应
+                # 同一提示词发十次，用 i 的奇偶交替选择 JSON 和 SSE，并分别检查结束条件。
+
+
                 for i in range(10):
                     conn=http.client.HTTPConnection('127.0.0.1',config['port'],timeout=150)
                     conn.request('POST','/v1/completions',json.dumps({'prompt':'你好，请用一句话介绍自己。','max_tokens':32,'stream':bool(i%2)}))

@@ -1,3 +1,8 @@
+# LLMServe-Lite 本地推理服务 | .github/workflows/ci.yml
+# GitHub 在 Linux 上跑应用层的 mock 和 sanitize 预设，实际步骤交给 scripts/check.sh。
+# 这些作业能检查服务逻辑以及部分内存错误，真实模型走单独的 CPU 工作流。
+
+
 name: CPU application checks
 on: [push, pull_request]
 permissions:
