@@ -1,17 +1,14 @@
 # LLMServe-Lite 本地推理服务 | tests/test_benchmark_helpers.py
 # 给 run.py 的文件校验函数提供小文件，再检查它能否分块读出正确 SHA-256。
 # 测试也覆盖路径不存在的情况，防止基准报告把没有读到的模型当作已校验。
-#
-# 阅读地图（按源码顺序）
-#   1 限制校验内存
 
 
-import hashlib  # 按文件或字节内容计算指纹
-import importlib.util  # 按文件路径装载被测模块或检查依赖
-from pathlib import Path  # 拼接目录、文件名并读取文件
-import tempfile  # 为一次测试创建临时文件或目录
-import unittest  # 组织测试用例并核对预期结果
-from unittest.mock import patch  # 用可控对象替换依赖，构造可重复的测试条件
+import hashlib
+import importlib.util
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('benchmark', Path(__file__).resolve().parents[1] / 'bench/run.py')
 benchmark = importlib.util.module_from_spec(spec)

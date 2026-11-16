@@ -3,23 +3,20 @@
 # 从服务外部检查真实 CPU 容器、Prometheus 和 Grafana 能否连起来。
 # 脚本向本机服务施加负载，再查指标、内部告警状态和仪表盘接口，在收尾时释放自己创建的容器。
 #
-# 阅读地图（按源码顺序）
-#   1 HTTP轮询 → 2 平台验收 → 3 追踪容器
-#   4 容器启动 → 5 验证仪表盘 → 6 真实过载
-#   7 检查告警状态 → 8 清理顺序
+# 阅读顺序：启动并检查容器 → 检查仪表盘 → 制造过载并观察告警 → 清理本次容器。
 
 
 """Run only owned Linux containers; verify real inference, monitoring and internal alerts."""
-import argparse  # 读取命令行输入并检查参数格式
-import concurrent.futures  # 提交并发任务，通过 Future 取回各次结果
-import json  # 在 Python 对象和 JSON 文本之间转换
-from pathlib import Path  # 拼接目录、文件名并读取文件
-import subprocess  # 启动外部程序，获取输出或退出码
-import socket  # 创建套接字或选择本地监听端口
-import tempfile  # 为一次测试创建临时文件或目录
-import time  # 记录时间、设置等待间隔或截止时刻
+import argparse
+import concurrent.futures
+import json
+from pathlib import Path
+import subprocess
+import socket
+import tempfile
+import time
 import urllib.parse
-import urllib.request  # 发出 HTTP 请求，按流读取响应
+import urllib.request
 import uuid
 
 from run import ROOT, get, request, sha256_file

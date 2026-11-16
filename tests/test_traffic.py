@@ -6,9 +6,9 @@
 #   1 达标率验收 → 2 构造分母
 
 
-import sys  # 访问解释器参数、模块搜索路径等运行环境
-from pathlib import Path  # 拼接目录、文件名并读取文件
-import unittest  # 组织测试用例并核对预期结果
+import sys
+from pathlib import Path
+import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bench'))
 from traffic import summarize

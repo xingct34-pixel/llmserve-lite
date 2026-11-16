@@ -2,10 +2,7 @@
 # 在真实模型上分组改变 CPU 计算线程数和客户端并发度，复用 run.py 的请求与采样函数。
 # 同一模型、同一组输入配不同参数，可以观察多等一会儿来自排队还是生成变慢。
 #
-# 阅读地图（按源码顺序）
-#   1 真实CPU实验 → 2 服务生命周期 → 3 监控子进程
-#   4 执行入口 → 5 改变引擎计算线程数 → 6 改变客户端并发
-#   7 超时后的状态
+# 阅读顺序：准备和监控服务进程 → 分别改变计算线程数与客户端并发 → 检查超时后能否恢复。
 
 
 # 模块 1：真实CPU实验
@@ -14,7 +11,7 @@
 
 """Controlled real-model validation. Standard library only; no downloads."""
 import argparse, concurrent.futures, contextlib, hashlib, http.client, importlib.util, json, signal, socket, subprocess, tempfile, threading, time
-from pathlib import Path  # 拼接目录、文件名并读取文件
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('bench', ROOT / 'bench/run.py')

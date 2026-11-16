@@ -3,11 +3,7 @@
 // 可以跟着一个 Job 读：main.cpp 收到请求，core.cpp 把它交给 worker，
 // engine.cpp 生成文字，HTTP 线程再从同一个 Job 取出文字，返回给客户端。
 //
-// 阅读地图（按源码顺序）
-//   1 字段校验（is_int） → 2 服务配置（Config） → 3 可选前缀缓存
-//   4 排队预算 → 5 请求数据（Request） → 6 生成统计（Generation）
-//   7 真实计算口径 → 8 引擎接口（Engine） → 9 辅助接口
-//   10 任务状态（Job） → 11 调度器（Scheduler） → 12 有界观测
+// 阅读顺序：配置与请求格式 → 引擎接口 → 单请求的事件与终态（Job） → 多请求的排队和统计（Scheduler）。
 
 
 // `serve.hpp` 是整个本地 LLM 推理服务的核心头文件，
@@ -44,17 +40,17 @@
 
 #pragma once
 #include <nlohmann/json.hpp>
-#include <atomic>  // 让跨线程共享的计数或标志以原子方式访问
-#include <chrono>  // 测两个时刻的差，并明确转换秒或毫秒
-#include <condition_variable>  // 队列状态改变时唤醒等待者
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <deque>
-#include <functional>  // 把一段可调用逻辑作为参数或成员保存
-#include <memory>  // 智能指针管理资源归属与释放时机
+#include <functional>
+#include <memory>
 #include <limits>
-#include <mutex>  // 访问共享数据前加锁，离开临界区再让出锁
-#include <optional>  // 用一个返回类型同时表达“有值”和“已经没有值”
+#include <mutex>
+#include <optional>
 #include <string>
-#include <thread>  // 创建线程及等待线程退出
+#include <thread>
 #include "observability.hpp"  // 直方图与 Prometheus 指标文本的公共接口
 
 namespace serve {
@@ -190,7 +186,7 @@ public:
 // 根据配置创建对应的引擎（mock 或 llama.cpp）
 std::unique_ptr<Engine> make_engine(const Config&);
 // 取出缓冲区里"完整的 UTF-8 字符"。
-// 通俗讲：一个汉字占 3 个字节，token 可能只输出了半个字，直接发出去会乱码，所以先攒够再发；
+// 通俗讲：例如“中”的 UTF-8 编码占 3 个字节，token 可能只输出了半个字，直接发出去会乱码，所以先攒够再发；
 // flush 为 true 时表示结尾了，剩余的全部取出
 std::string complete_utf8(std::string&, bool flush = false);
 // 输出一条 JSON 格式的日志
@@ -217,7 +213,7 @@ struct Job {
     std::atomic<bool> cancelled{false};                // 取消标志，无需加锁即可读写
     std::mutex mutex;                                  // 保护下面的状态和事件队列
     std::condition_variable cv;                        // 用来唤醒在等待事件或状态变化的线程
-    // running：正在执行；done：已结束；terminal_read：终态事件是否已被消费者读走
+    // running：worker 已开始过这个任务，结束时不会清零；done：已结束；terminal_read：终态事件是否已被消费者读走
     bool running = false, done = false, terminal_read = false;
     std::deque<Json> events;                           // 待读取的文本增量事件
     // 终态单独存放，不挤占有限的 delta 缓冲，慢消费者也不会堵住 finish。

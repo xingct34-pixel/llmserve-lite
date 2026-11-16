@@ -7,15 +7,15 @@
 
 
 """Offline download safety tests. Payload is fake bytes in temporary directories, never a model."""
-import contextlib  # 管理作用域进入与退出时的操作
-import hashlib  # 按文件或字节内容计算指纹
-import importlib.util  # 按文件路径装载被测模块或检查依赖
-import io  # 把内存缓冲当成可读写的流
-import json  # 在 Python 对象和 JSON 文本之间转换
-from pathlib import Path  # 拼接目录、文件名并读取文件
-import tempfile  # 为一次测试创建临时文件或目录
-import unittest  # 组织测试用例并核对预期结果
-from unittest.mock import patch  # 用可控对象替换依赖，构造可重复的测试条件
+import contextlib
+import hashlib
+import importlib.util
+import io
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
 import urllib.error
 
 spec=importlib.util.spec_from_file_location('fetch_model',Path(__file__).resolve().parents[1]/'scripts/fetch_model.py')

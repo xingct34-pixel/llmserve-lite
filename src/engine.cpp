@@ -3,20 +3,13 @@
 // LlamaEngine 加载 GGUF，先处理提示词，再逐个预测新 token，通过 emit 把文字交回 Job。
 // 一个 token 可能只包含一个汉字的部分字节，因此输出前要先拼出完整的 UTF-8 字符。
 //
-// 阅读地图（按源码顺序）
-//   1 UTF-8 文本边界处理（complete_utf8） → 2 UTF-8 尾部 → 3 模拟计数（codepoints）
-//   4 模拟引擎（MockEngine） → 5 模拟环境 → 6 后端生命周期
-//   7 CPU模型引擎 → 8 前缀缓存身份 → 9 模型生命周期
-//   10 请求准备 → 11 分词与容量 → 12 上下文容量
-//   13 前缀匹配 → 14 匹配前缀 → 15 取消绑定
-//   16 Prefill → 17 分块预填充 → 18 Decode
-//   19 提交缓存 → 20 引擎工厂
+// 阅读顺序：处理 UTF-8 并实现模拟引擎 → 初始化真实模型 → 分词、复用前缀和预填充 → 逐 token 解码并更新缓存 → 选择引擎。
 
 
 #include "serve.hpp"  // HTTP、调度器与生成引擎共用的配置、请求和任务类型
-#include <algorithm>  // 排序、查找、取最大最小值等标准算法
+#include <algorithm>
 #include <stdexcept>
-#include <vector>  // 元素连续存放，适合装浮点张量或一组检测记录
+#include <vector>
 #ifdef LLMSERVE_WITH_LLAMA
 #include "llama.h"  // llama.cpp 的模型、上下文、分词和执行接口
 #endif

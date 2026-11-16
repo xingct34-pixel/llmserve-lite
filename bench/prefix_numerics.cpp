@@ -2,17 +2,15 @@
 // 独立诊断程序。给同一个模型设置几组上下文，分别改变提示词分块方式和前缀复用方式，
 // 在相同后续 token 下比较模型给词表打的原始分数（logits）。这样能区分文本碰巧相同与分数真的相同。
 //
-// 阅读地图（按源码顺序）
-//   1 提示词准备 → 2 受控Prefill → 3 数值比较
-//   4 数值检查 → 5 因果对照 → 6 对齐每一步
+// 阅读顺序：准备提示词 → 运行受控预填充 → 对齐解码步骤并比较数值。
 
 
 #include "serve.hpp"  // HTTP、调度器与生成引擎共用的配置、请求和任务类型
 #include "llama.h"  // llama.cpp 的模型、上下文、分词和执行接口
-#include <algorithm>  // 排序、查找、取最大最小值等标准算法
+#include <algorithm>
 #include <cmath>
 #include <iostream>
-#include <vector>  // 元素连续存放，适合装浮点张量或一组检测记录
+#include <vector>
 
 namespace {
 

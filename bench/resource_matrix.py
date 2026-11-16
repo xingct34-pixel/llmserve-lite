@@ -12,11 +12,11 @@
 
 
 """Bounded CPU context/queue resource experiments. Existing model only."""
-import argparse  # 读取命令行输入并检查参数格式
-import concurrent.futures  # 提交并发任务，通过 Future 取回各次结果
-import json  # 在 Python 对象和 JSON 文本之间转换
-from pathlib import Path  # 拼接目录、文件名并读取文件
-import time  # 记录时间、设置等待间隔或截止时刻
+import argparse
+import concurrent.futures
+import json
+from pathlib import Path
+import time
 
 import cpu_matrix as matrix
 

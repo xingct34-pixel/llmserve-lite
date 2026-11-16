@@ -3,9 +3,7 @@
 # 为真实引擎准备指定的官方 GGUF。先读取仓库版本、文件大小和摘要，再分块下载或续传。
 # 核对 SHA-256 后才把文件作为正式模型使用；tests/download_tests.py 用小段假数据覆盖出错分支。
 #
-# 阅读地图（按源码顺序）
-#   1 模型准备 → 2 文件校验 → 3 执行入口
-#   4 固定下载身份 → 5 断点续传 → 6 检查完整性
+# 阅读顺序：固定要取的文件和版本 → 续传分块 → 核对大小与哈希。
 
 
 # 模块 1：模型准备
@@ -13,14 +11,14 @@
 
 
 """Fetch only the approved official Q4_K_M file, pin revision and verify LFS SHA-256."""
-import hashlib  # 按文件或字节内容计算指纹
-import json  # 在 Python 对象和 JSON 文本之间转换
-from pathlib import Path  # 拼接目录、文件名并读取文件
+import hashlib
+import json
+from pathlib import Path
 import shutil
-import sys  # 访问解释器参数、模块搜索路径等运行环境
-import time  # 记录时间、设置等待间隔或截止时刻
+import sys
+import time
 import urllib.error
-import urllib.request  # 发出 HTTP 请求，按流读取响应
+import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = 'Qwen/Qwen2.5-0.5B-Instruct-GGUF'

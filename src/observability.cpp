@@ -1,15 +1,13 @@
 // LLMServe-Lite 本地推理服务 | src/observability.cpp
-// 实现 observability.hpp 的两个动作：记录一次耗时，以及导出已有统计。
-// 计数时一次只加一个桶；导出时从小到大累加，所以某个时间上限的读数包含所有更快的请求。
-// /metrics/prometheus 把这些累计桶连同总次数、总耗时交给 Prometheus。
+// 功能：把耗时记入固定区间，再导出各时间上限内的累计次数。
+// 例：观测 4 ms、12 ms 各一次，导出时 ≤5 ms 的桶为 1，≤20 ms 的桶为 2。
+// 目的：通过 /metrics/prometheus 看有多少次耗时落在目标以内，同时免去保存每一次历史耗时的开销。
 //
-// 阅读地图（按源码顺序）
-//   1 样本入桶 → 2 合法样本 → 3 快照生成
-//   4 累计分布 → 5 文本格式 → 6 输出耗时分布
+// 阅读顺序：耗时样本入桶 → 生成累计快照 → 导出指标文本。
 
 
 #include "observability.hpp"  // 直方图与 Prometheus 指标文本的公共接口
-#include <algorithm>  // 排序、查找、取最大最小值等标准算法
+#include <algorithm>
 #include <cmath>
 #include <iomanip>
 #include <locale>

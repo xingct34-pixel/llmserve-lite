@@ -2,27 +2,24 @@
 # 启动本地 Mock 服务，通过真实 HTTP 连接检查参数、流式响应、拒绝、断连及退出。
 # 先读 server 和 call 掌握怎样发请求，再选一个 test 对照 main.cpp 的对应路由。
 #
-# 阅读地图（按源码顺序）
-#   1 隔离运行 → 2 发送一条请求 → 3 标准指标
-#   4 预算背压 → 5 配置拒绝 → 6 协议验收
-#   7 满队列与健康探针 → 8 验证退出与恢复
+# 阅读顺序：准备服务和请求工具 → 检查指标与预算 → 验证 HTTP/SSE → 满载、恢复与退出。
 
 
 """Standard-library HTTP tests. Starts/stops only child servers created by this test."""
 
-import concurrent.futures  # 提交并发任务，通过 Future 取回各次结果
-import contextlib  # 管理作用域进入与退出时的操作
-import http.client  # 从客户端发送 HTTP 请求、读取状态与响应体
-import json  # 在 Python 对象和 JSON 文本之间转换
+import concurrent.futures
+import contextlib
+import http.client
+import json
 import os
-from pathlib import Path  # 拼接目录、文件名并读取文件
-import signal  # 向子进程传递退出信号
-import socket  # 创建套接字或选择本地监听端口
-import subprocess  # 启动外部程序，获取输出或退出码
-import sys  # 访问解释器参数、模块搜索路径等运行环境
-import tempfile  # 为一次测试创建临时文件或目录
-import time  # 记录时间、设置等待间隔或截止时刻
-import unittest  # 组织测试用例并核对预期结果
+from pathlib import Path
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
 
 BINARY = str(Path(sys.argv.pop(1)).resolve())
 ROOT = Path(__file__).resolve().parents[1]

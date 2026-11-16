@@ -3,10 +3,7 @@
 # 压测客户端通过本地 HTTP 发送流式请求，按客户端时钟记录第一段文字和整次完成时间。
 # 它还读取服务进程的内存、退出码和服务端指标。结果保留引擎身份，便于区分模拟与真实生成。
 #
-# 阅读地图（按源码顺序）
-#   1 服务基准 → 2 大文件校验 → 3 分位统计
-#   4 指标读取 → 5 请求测量 → 6 资源采样
-#   7 执行入口 → 8 独立采样
+# 阅读顺序：准备摘要与计时工具 → 逐请求测量 → 同步采样资源 → 汇总结果。
 
 
 # 模块 1：服务基准
@@ -14,20 +11,20 @@
 
 
 """Reproducible low-resource benchmark and soak. No external Python packages."""
-import argparse  # 读取命令行输入并检查参数格式
-import concurrent.futures  # 提交并发任务，通过 Future 取回各次结果
+import argparse
+import concurrent.futures
 import csv
-import hashlib  # 按文件或字节内容计算指纹
-import http.client  # 从客户端发送 HTTP 请求、读取状态与响应体
-import json  # 在 Python 对象和 JSON 文本之间转换
+import hashlib
+import http.client
+import json
 import os
-from pathlib import Path  # 拼接目录、文件名并读取文件
-import signal  # 向子进程传递退出信号
-import socket  # 创建套接字或选择本地监听端口
-import statistics  # 对多次实验样本求统计量
-import subprocess  # 启动外部程序，获取输出或退出码
-import threading  # 让采样、同步等操作与主任务并发进行
-import time  # 记录时间、设置等待间隔或截止时刻
+from pathlib import Path
+import signal
+import socket
+import statistics
+import subprocess
+import threading
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 

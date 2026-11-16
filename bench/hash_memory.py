@@ -11,12 +11,12 @@
 
 
 """Measure benchmark-client hashing memory in a fresh Linux process."""
-import argparse  # 读取命令行输入并检查参数格式
-import hashlib  # 按文件或字节内容计算指纹
-import json  # 在 Python 对象和 JSON 文本之间转换
-from pathlib import Path  # 拼接目录、文件名并读取文件
-import resource  # 读取进程资源使用情况
-import sys  # 访问解释器参数、模块搜索路径等运行环境
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import resource
+import sys
 
 from run import sha256_file
 

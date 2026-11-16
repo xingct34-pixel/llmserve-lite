@@ -3,13 +3,7 @@
 // 同一句提示词有两种回程：普通请求收齐文字后返回 JSON；流式请求通过 SSE 分段发送。
 // 沿一个 POST 往下读，找到提交 Job、等第一个事件、写给客户端这三个交接点。
 //
-// 阅读地图（按源码顺序）
-//   1 HTTP 辅助（信号标志、JSON 响应、错误码映射） → 2 服务入口（main） → 3 服务初始化
-//   4 HTTP 接入层 → 5 健康检查 → 6 指标接口
-//   7 HTTP 状态计数 → 8 Prometheus 接口 → 9 推理接口（POST /v1/completions）
-//   10 1 请求校验 → 11 2 有界接入 → 12 3 等待执行
-//   13 等第一条事件 → 14 4 JSON 响应（非流式） → 15 5 SSE 响应（流式）
-//   16 保留首个事件 → 17 监听与退出
+// 阅读顺序：启动服务 → 注册健康和指标接口 → 接收请求并等首个事件 → 普通 JSON 或 SSE → 退出。
 
 
 #include "serve.hpp"  // HTTP、调度器与生成引擎共用的配置、请求和任务类型
@@ -182,7 +176,7 @@ int main(int argc, char** argv) {
             try {
 
 
-                // 模块 10：1 请求校验
+                // 模块 10：请求校验
                 // 作用：检查 JSON 字段类型、未知字段、提示词长度和输出上限。
 
 
@@ -213,9 +207,9 @@ int main(int argc, char** argv) {
                 }
 
 
-                // 模块 11：2 有界接入
+                // 模块 11：有界接入
                 // 作用：先占 HTTP 名额，再尝试提交等待队列。
-                // 两层拒绝：此处接入已满返回 admission_full；Scheduler 等待队列满返回 queue_full。
+                // 两层拒绝：此处接入已满返回 admission_full；Scheduler 拒绝提交时该路由返回 queue_full。
                 // 接入层拒绝没有进入调度器，因此 Scheduler.rejected 不包含所有 HTTP 429。
                 // 通俗讲：餐厅门口先限制总人数（第一层），进门后座位也满了再拒绝（第二层）。
 
@@ -230,7 +224,7 @@ int main(int argc, char** argv) {
                 }
                 owns_slot = true;
                 job = scheduler.submit(request);
-                // submit 返回空指针表示等待队列已满，归还名额并返回 429
+                // 队列满、预算不足或调度器正在停机都可能返回空指针。这条分支统一归还接入名额，并回 429 queue_full
                 if (!job) {
                     handling.fetch_sub(1);
                     owns_slot = false;
@@ -242,7 +236,7 @@ int main(int argc, char** argv) {
                 res.set_header("X-Request-ID", job->id);
 
 
-                // 模块 12：3 等待执行
+                // 模块 12：等待执行
                 // 作用：先等任务开始、再读首个事件；此时响应头还没发出，早期失败仍能返回真实的 400/504 等状态码。
 
 
@@ -278,7 +272,7 @@ int main(int argc, char** argv) {
                 }
 
 
-                // 模块 14：4 JSON 响应（非流式）
+                // 模块 14：JSON 响应（非流式）
                 // 作用：消费事件缓冲，把所有文本片段拼起来一次性返回。
                 // 非流式也消费同一个有界事件缓冲，只是攒齐文本后一次返回 JSON。
 
@@ -306,7 +300,7 @@ int main(int argc, char** argv) {
                 }
 
 
-                // 模块 15：5 SSE 响应（流式）
+                // 模块 15：SSE 响应（流式）
                 // 作用：保留已取出的首事件，之后逐段写入客户端，并处理中途断连。
                 // SSE 是 HTTP 响应中的事件流，不是 WebSocket。每帧用 data: JSON 加空行分隔。
                 // pending 保留已取出的首事件；shared_ptr 按值捕获，保证后续发送回调中 Job 仍有效。
@@ -346,13 +340,11 @@ int main(int argc, char** argv) {
                         // SSE 帧格式：错误事件多一行 "event: error"，然后是 "data: JSON" 和空行
                         const std::string frame = (type == "error" ? "event: error\n" : "") +
                                                   std::string("data: ") + event->dump() + "\n\n";
-                        // 写失败说明客户端断了，取消任务
                         // 写给断开的客户端可能失败。取消对应任务，让 worker 有机会停止为已经离开的人生成后续文字。
                         if (!sink.write(frame.data(), frame.size())) {
                             job->cancel("client_disconnect");
                             return false;
                         }
-                        // 成功终态后只发一次[DONE]；中途错误发event:error后结束，不冒充成功。
                         // 成功终止才追加流协议的 [DONE]。生成失败需要让客户端看到错误事件，不能把失败当作正常结束。
                         if (type == "done") {
                             const std::string end = "data: [DONE]\n\n";

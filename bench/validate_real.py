@@ -11,18 +11,18 @@
 
 
 """Validation only: existing service, cold first request plus repeat CPU measurements."""
-from pathlib import Path  # 拼接目录、文件名并读取文件
-import hashlib  # 按文件或字节内容计算指纹
-import http.client  # 从客户端发送 HTTP 请求、读取状态与响应体
-import importlib.util  # 按文件路径装载被测模块或检查依赖
-import json  # 在 Python 对象和 JSON 文本之间转换
-import signal  # 向子进程传递退出信号
-import socket  # 创建套接字或选择本地监听端口
-import statistics  # 对多次实验样本求统计量
-import subprocess  # 启动外部程序，获取输出或退出码
-import tempfile  # 为一次测试创建临时文件或目录
-import threading  # 让采样、同步等操作与主任务并发进行
-import time  # 记录时间、设置等待间隔或截止时刻
+from pathlib import Path
+import hashlib
+import http.client
+import importlib.util
+import json
+import signal
+import socket
+import statistics
+import subprocess
+import tempfile
+import threading
+import time
 
 root = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('benchmark', root / 'bench/run.py')

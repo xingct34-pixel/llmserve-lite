@@ -1,21 +1,15 @@
 // LLMServe-Lite 本地推理服务 | src/core.cpp
-// 实现 serve.hpp 里的 Config、Job 和 Scheduler。HTTP 线程提交 Job 后，可以继续接待别人；
-// 一个推理 worker 从等待队列取出它，调用 Engine::generate，把文字片段写进该 Job 的事件队列。
-// 一条队列存“还没开始的请求”，另一条存“这个请求已经生成、尚未被读走的文字”。
+// 功能：Scheduler 安排哪个请求先算，Job 把该请求的生成结果交给 HTTP 层。
+// 等待队列由 HTTP 处理线程提交，唯一的推理 worker 取任务。空时 worker 睡眠；满时提交直接失败。
+// 单个 Job 的事件队列由 worker 写、HTTP 层读。空且任务未结束时读者等待；满时写者限时等空位。
+// 停机时清掉排队任务并写错误终态，给运行中的任务发取消信号。Job::next 先交付已有片段，再交付一次终态。
+// 目的：把等模型空闲和等客户端接收分开。HTTP 处理线程提交后仍要等启动和首个事件，模型计算由 worker 执行。
 //
-// 阅读地图（按源码顺序）
-//   1 计时辅助（millis） → 2 日志输出（log） → 3 配置加载（Config::load）
-//   4 读取配置 → 5 任务初始化（Job 构造函数） → 6 任务取消（Job::cancel）
-//   7 执行期限检查（Job::stopped） → 8 文本投递（Job::emit） → 9 慢客户端
-//   10 首段时间 → 11 任务终结（Job::finish） → 12 事件消费（Job::next）
-//   13 排队等待（Job::await_start） → 14 调度初始化（Scheduler 构造函数） → 15 调度清理（Scheduler 析构函数）
-//   16 任务接入（Scheduler::submit） → 17 清理排队任务 → 18 等待计算预算
-//   19 推理循环（Scheduler::run） → 20 单 worker 循环 → 21 成功与失败分开统计
-//   22 成功耗时归档 → 23 退出处理（Scheduler::stop） → 24 指标快照（Scheduler::metrics）
+// 阅读顺序：配置和日志 → Job 交接文本和终态 → Scheduler 接收与执行请求 → 停机与指标。
 
 
 #include "serve.hpp"  // HTTP、调度器与生成引擎共用的配置、请求和任务类型
-#include <algorithm>  // 排序、查找、取最大最小值等标准算法
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -161,7 +155,7 @@ Job::Job(std::string value, Request req, const Config& cfg)
 
 
 // 模块 6：任务取消（Job::cancel）
-// 作用：记录取消原因、置取消标志，并唤醒所有在等待的线程。
+// 作用：记录取消原因、置取消标志，并通知等待这个 Job 条件变量的线程；被唤醒后仍要检查各自的条件。
 // 只有"尚未结束且尚未被取消"时才写入原因，所以第一个取消原因会被保留，不会被后来者覆盖。
 
 
@@ -269,10 +263,9 @@ void Job::finish(const Json& event) {
 
 std::optional<Json> Job::next() {
     std::unique_lock<std::mutex> lock(mutex);
-    // 没事件且没结束就等；每 50 毫秒醒一次，作为保险，防止错过通知而永久卡死
+    // 有通知或等满 50 ms 就重新检查 events 和 done。单独调用 cancel() 不会让这里返回终态，finish() 才设置 done
     while (events.empty() && !done)
         cv.wait_for(lock, std::chrono::milliseconds(50));
-    // 先读完已产生的delta，再读一次终态；随后nullopt表示事件流结束。
     // 先读剩余文本，再读终止事件。最后一个 delta 已生成并不等于客户端已经消费了它。
     if (!events.empty()) {
         auto e = std::move(events.front());
@@ -292,7 +285,7 @@ std::optional<Json> Job::next() {
 
 // 模块 13：排队等待（Job::await_start）
 // 作用：在排队期限内等待 worker 开始处理或任务提前结束。
-// 返回 true 表示已开始执行；false 表示排队超时或被取消。
+// 等待条件是 running 或 done。到期仍未满足就标记排队超时；若先收到终态，则以 running 判断任务是否开始过。
 
 
 bool Job::await_start() {
@@ -333,7 +326,7 @@ Scheduler::~Scheduler() {
 
 // 模块 16：任务接入（Scheduler::submit）
 // 作用：先清理已取消或已超时的等待者，再做预算和容量检查，通过后创建任务入队。
-// 返回空指针表示拒绝（队列满或预算不足）。
+// 容量已满、排队输出预算不足、或正在停机都会返回空指针。提交者不会留在这里等名额。
 
 
 std::shared_ptr<Job> Scheduler::submit(Request r) {
@@ -378,7 +371,7 @@ std::shared_ptr<Job> Scheduler::submit(Request r) {
     int reserved_output = 0;
     for (const auto& pending : queue_)
         reserved_output += pending->request.max_tokens;
-    // 预算为 0 表示关闭此功能
+    // 例：预算 100，队里已预留 80，新请求要 32。112 超出预算，即使还有空位也拒绝；配置为 0 则跳过预算检查。
     // 预算是等待任务申请的最大输出 token 总量。队列还有空位时，长请求也可能因为剩余预算不足被拒绝。
     if (config_.queued_output_budget &&
         reserved_output + r.max_tokens > config_.queued_output_budget) {
@@ -582,7 +575,7 @@ void Scheduler::stop() {
         queue_.clear();
         cv_.notify_all();
     }
-    // 在锁外 join，否则 worker 想拿锁就会死锁；joinable 判断保证重复调用 stop 也安全
+    // 离开队列锁后才 join，worker 才能再次取锁并退出。按顺序再次调用时，joinable() 会跳过已回收的线程
     // 先唤醒等待线程、发出停止，再 join。join 只等线程返回，本身不会把睡眠中的线程叫醒。
     if (worker_.joinable())
         worker_.join();

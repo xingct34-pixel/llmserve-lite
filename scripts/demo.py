@@ -11,7 +11,7 @@
 
 
 """One-command local CPU demonstration; starts and stops only its own server."""
-from pathlib import Path  # 拼接目录、文件名并读取文件
+from pathlib import Path
 import http.client, json, signal, socket, subprocess, tempfile, time
 
 ROOT = Path(__file__).resolve().parents[1]
