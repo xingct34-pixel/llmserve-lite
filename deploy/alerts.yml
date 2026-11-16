@@ -1,14 +1,24 @@
 # LLMServe-Lite 本地推理服务 | deploy/alerts.yml
 # Prometheus 载入这组规则后，定时判断 HTTP 429 是否增长、队列是否持续有积压。
 # 表达式描述“发生了什么”，for 指定条件持续多久才进入告警状态。
+#
+# 阅读地图（按源码顺序）
+#   1 告警示例 → 2 请求被拒 → 3 持续积压
 
 
-# 模块：告警示例：请求拒绝与队列积压分别提示，阈值须根据实际负载调整
+# 模块 1：告警示例
+# 功能：请求拒绝与队列积压分别提示，阈值须根据实际负载调整
 
 
 groups:
   - name: llmserve
     rules:
+
+
+      # 模块 2：请求被拒
+      # 在最近 5 分钟的窗口看 429 计数增量；for 表示条件还需持续一段时间才进入 firing。
+
+
       - alert: LLMServeRequestsRejected
         expr: increase(llmserve_http_status_429_total[5m]) > 0
         for: 1m
@@ -16,6 +26,12 @@ groups:
           severity: warning
         annotations:
           summary: "LLMServe-Lite observed rejected requests"
+
+
+      # 模块 3：持续积压
+      # 队列曾经非空不等于持续拥堵。这里要求连续 2 分钟仍符合条件。
+
+
       - alert: LLMServeQueueBacklog
         expr: llmserve_queue_depth > 0
         for: 2m

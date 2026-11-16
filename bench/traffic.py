@@ -2,25 +2,31 @@
 # LLMServe-Lite 本地推理服务 | bench/traffic.py
 # 按预设时间间隔交替发送长短请求。即使服务很忙，计划到达的请求仍纳入负载统计。
 # summarize 同时看首段输出时限与总耗时时限，区分已完成请求和按时完成的请求。
+#
+# 阅读地图（按源码顺序）
+#   1 结果统计 → 2 计划负载 → 3 记录计划与实际开始的差
+#   4 客户端已满 → 5 运行入口
 
 
 """Bounded scheduled-arrival CPU workload, including client scheduling delay and SLO goodput."""
-import argparse
-import concurrent.futures
-import json
-import math
-from pathlib import Path
-import signal
-import socket
-import subprocess
-import time
+import argparse  # 读取命令行输入并检查参数格式
+import concurrent.futures  # 提交并发任务，通过 Future 取回各次结果
+import json  # 在 Python 对象和 JSON 文本之间转换
+import math  # 检查有限数值或做数值运算
+from pathlib import Path  # 拼接目录、文件名并读取文件
+import signal  # 向子进程传递退出信号
+import socket  # 创建套接字或选择本地监听端口
+import subprocess  # 启动外部程序，获取输出或退出码
+import time  # 记录时间、设置等待间隔或截止时刻
 
 from run import ROOT, get, percentile, request, sha256_file, snapshot
 
 
-# 模块：结果统计：拒绝和失败保留在分母内；达标请求须同时满足成功、首输出和总延迟条件
+# 模块 1：结果统计
+# 功能：拒绝和失败保留在分母内；达标请求须同时满足成功、首输出和总延迟条件
 
 
+# 假设计划发 10 次，8 次成功、其中 6 次两项延迟都达标，达标率是 6/10。只除以成功数会高估服务质量。
 def summarize(rows, elapsed, ttft_slo_ms, latency_slo_ms):
     success = [r for r in rows if r.get('success')]
     good = [
@@ -50,7 +56,8 @@ def summarize(rows, elapsed, ttft_slo_ms, latency_slo_ms):
     }
 
 
-# 模块：计划负载：固定间隔发送，交替长短输入；忙时丢弃客户端样本并明确计数
+# 模块 2：计划负载
+# 功能：固定间隔发送，交替长短输入；忙时丢弃客户端样本并明确计数
 
 
 def run_workload(port, samples, interval, clients, output_tokens):
@@ -62,10 +69,11 @@ def run_workload(port, samples, interval, clients, output_tokens):
     ]
 
 
-    # 模块：记录计划与实际开始的差
+    # 模块 3：记录计划与实际开始的差
     # due 是原定发送时刻；客户端线程晚开始也会占用用户等待的时间。
 
 
+    # 若本来 100 ms 应该发，到 130 ms 才开始执行，则计划视角比实际请求耗时多计 30 ms 等待。
     def send(index, due):
         lag_ms = max(0, (time.monotonic() - due) * 1000)
         row = request(
@@ -87,6 +95,12 @@ def run_workload(port, samples, interval, clients, output_tokens):
             due = origin + index * interval
             time.sleep(max(0, due - time.monotonic()))
             # 不在ThreadPool里悄悄积累无限等待任务；记录未发送请求，避免隐藏过载。
+
+
+            # 模块 4：客户端已满
+            # 这一项按计划仍算到达，只是发不出去。它和服务端明确回复 HTTP 429 是两个不同的现象。
+
+
             if sum(not f.done() for f in pending) >= clients:
                 rows.append(
                     {
@@ -103,7 +117,8 @@ def run_workload(port, samples, interval, clients, output_tokens):
     return sorted(rows, key=lambda r: r['index']), time.monotonic() - origin
 
 
-# 模块：运行入口：仅启动和停止自己创建的子进程，原始请求及资源信息留在本地
+# 模块 5：运行入口
+# 功能：仅启动和停止自己创建的子进程，原始请求及资源信息留在本地
 
 
 def main():
@@ -130,6 +145,7 @@ def main():
     cfg = json.loads((ROOT / args.config).read_text())
     if not 1 <= args.max_tokens <= cfg['max_output_tokens']:
         parser.error('max-tokens outside configured output bound')
+    # 真模型先核对清单里的哈希；mock 走同一套网络压测入口，但结果不代表 GGUF 的生成速度。
     if cfg['engine'] == 'llama':
         model = ROOT / cfg['model_path']
         manifest = json.loads((ROOT / 'models/manifest.json').read_text())
@@ -139,6 +155,7 @@ def main():
         sock.bind(('127.0.0.1', 0))
         cfg['port'] = sock.getsockname()[1]
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    # 把选择的空闲端口等参数写入本次专用配置。报告与这份配置放在一起，以后才能复现当时的负载。
     config_path = args.output.with_suffix('.config.json')
     config_path.write_text(json.dumps(cfg))
     binary = (ROOT / args.binary).resolve()
@@ -147,6 +164,7 @@ def main():
             [str(binary), str(config_path.resolve())], cwd=ROOT, stdout=log, stderr=log
         )
         try:
+            # 服务端可能还在装载模型。先等 readyz，避免把启动等待算进第一批正式请求。
             deadline = time.monotonic() + 90
             while True:
                 if process.poll() is not None:

@@ -1,19 +1,24 @@
 // LLMServe-Lite 本地推理服务 | bench/prefix_numerics.cpp
 // 独立诊断程序。给同一个模型设置几组上下文，分别改变提示词分块方式和前缀复用方式，
 // 在相同后续 token 下比较模型给词表打的原始分数（logits）。这样能区分文本碰巧相同与分数真的相同。
+//
+// 阅读地图（按源码顺序）
+//   1 提示词准备 → 2 受控Prefill → 3 数值比较
+//   4 数值检查 → 5 因果对照 → 6 对齐每一步
 
 
-#include "serve.hpp"
-#include "llama.h"
-#include <algorithm>
+#include "serve.hpp"  // HTTP、调度器与生成引擎共用的配置、请求和任务类型
+#include "llama.h"  // llama.cpp 的模型、上下文、分词和执行接口
+#include <algorithm>  // 排序、查找、取最大最小值等标准算法
 #include <cmath>
 #include <iostream>
-#include <vector>
+#include <vector>  // 元素连续存放，适合装浮点张量或一组检测记录
 
 namespace {
 
 
-// 模块：提示词准备：使用与服务一致的聊天模板和真实tokenizer，不用字符数冒充分词
+// 模块 1：提示词准备
+// 功能：使用与服务一致的聊天模板和真实tokenizer，不用字符数冒充分词
 
 
 std::vector<llama_token> tokenize(llama_model* model, const std::string& text) {
@@ -35,7 +40,8 @@ std::vector<llama_token> tokenize(llama_model* model, const std::string& text) {
 }
 
 
-// 模块：受控Prefill：显式改变分块方式，其他上下文参数保持一致
+// 模块 2：受控Prefill
+// 功能：显式改变分块方式，其他上下文参数保持一致
 
 
 void feed(llama_context* context, std::vector<llama_token>& tokens, int start, int chunk = 128) {
@@ -47,13 +53,20 @@ void feed(llama_context* context, std::vector<llama_token>& tokens, int start, i
 }
 
 
-// 模块：数值比较：比较完整logits向量和归一化KL，不只检查生成文本是否非空
+// 模块 3：数值比较
+// 功能：比较完整logits向量和归一化KL，不只检查生成文本是否非空
 
 
 serve::Json compare(const float* reference, const float* candidate, int count) {
     double maximum = 0, square_sum = 0, reference_sum = 0, candidate_sum = 0;
     const auto ri = int(std::max_element(reference, reference + count) - reference);
     const auto ci = int(std::max_element(candidate, candidate + count) - candidate);
+
+
+    // 模块 4：数值检查
+    // 先排除无穷大与 NaN，再算最大绝对差；否则异常值可能破坏整组分数的比较。
+
+
     for (int index = 0; index < count; index++) {
         if (!std::isfinite(reference[index]) || !std::isfinite(candidate[index]))
             throw std::runtime_error("non-finite logits");
@@ -81,7 +94,8 @@ serve::Json compare(const float* reference, const float* candidate, int count) {
 }
 
 
-// 模块：因果对照：无跨请求缓存的分块、原缓存路径与相同形状的因果前缀参考分别对比
+// 模块 5：因果对照
+// 功能：无跨请求缓存的分块、原缓存路径与相同形状的因果前缀参考分别对比
 
 
 int main(int argc, char** argv) {
@@ -124,6 +138,7 @@ int main(int argc, char** argv) {
             shared++;
         if (!shared)
             throw std::runtime_error("probe needs a shared prefix");
+        // 迭代器区间只复制两条提示共同的开头。后面保持输入相同，才有办法比较不同预填充方式产生的数值。
         auto prefix = std::vector<llama_token>(b.begin(), b.begin() + shared);
         auto padded_b = b;
         padded_b.resize(a.size(), 0);
@@ -141,7 +156,14 @@ int main(int argc, char** argv) {
         double maximum_shape_error = 0;
         bool split_changed_logits = false;
         int split_argmax_differences = 0, cache_argmax_differences = 0;
+
+
+        // 模块 6：对齐每一步
+        // 对照上下文继续吃相同后续 token，才能把当前差异定位到前缀处理，而不是不同回答越走越远。
+
+
         for (int step = 0; step < 16; step++) {
+            // 取最后一个位置对整个词表的预测分数。即使两组最高分对应同一 token，其他分数也可能已经不同。
             auto full = llama_get_logits_ith(contexts[0].get(), -1);
             auto split = llama_get_logits_ith(contexts[1].get(), -1);
             auto cached = llama_get_logits_ith(contexts[2].get(), -1);

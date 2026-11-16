@@ -1,6 +1,10 @@
 # LLMServe-Lite 本地推理服务 | CMakeLists.txt
 # 把调度、引擎和监控实现编成 serve_core，再让 llmserve 和测试程序链接它。
 # 启用 LLMSERVE_WITH_LLAMA 时才编译固定版本的 CPU 后端；CTest 依据构建选项和本地文件登记测试。
+#
+# 阅读地图（按源码顺序）
+#   1 共享核心 → 2 可选后端 → 3 观测验收
+#   4 真实前缀缓存验收 → 5 数值归因
 
 
 cmake_minimum_required(VERSION 3.20)
@@ -14,14 +18,21 @@ find_package(Threads REQUIRED)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 
-# 模块：共享核心
+# 模块 1：共享核心
 # 主程序和单元测试链接同一份调度、引擎与指标实现。
 
 
+# 把服务和核心测试都链接到同一套代码，使测试经过与 HTTP 进程相同的调度逻辑。
 add_library(serve_core src/core.cpp src/engine.cpp src/observability.cpp)
 target_include_directories(serve_core PUBLIC include third_party)
 target_link_libraries(serve_core PUBLIC Threads::Threads)
 target_compile_options(serve_core PRIVATE -Wall -Wextra -Wpedantic)
+
+
+# 模块 2：可选后端
+# CPU 模式把 llama.cpp 接进构建。仅用 mock 的测试可以独立检查并发和服务协议。
+
+
 if(LLMSERVE_WITH_LLAMA)
   set(GGML_CUDA OFF CACHE BOOL "" FORCE)
   set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
@@ -55,7 +66,8 @@ if(BUILD_TESTING)
   add_test(NAME core COMMAND core_tests)
 
 
-  # 模块：观测验收：校验累计桶、标准文本指标和混合负载统计
+  # 模块 3：观测验收
+  # 功能：校验累计桶、标准文本指标和混合负载统计
 
 
   add_executable(observability_tests tests/observability_tests.cpp)
@@ -76,7 +88,8 @@ if(BUILD_TESTING)
 endif()
 
 
-# 模块：真实前缀缓存验收：单独加载固定模型，与关闭缓存的输出逐项比较
+# 模块 4：真实前缀缓存验收
+# 功能：单独加载固定模型，与关闭缓存的输出逐项比较
 
 
 if(BUILD_TESTING AND LLMSERVE_WITH_LLAMA)
@@ -89,7 +102,8 @@ if(BUILD_TESTING AND LLMSERVE_WITH_LLAMA)
 endif()
 
 
-# 模块：数值归因：只在CPU后端构建原生对照程序，独立于在线服务
+# 模块 5：数值归因
+# 功能：只在CPU后端构建原生对照程序，独立于在线服务
 
 
 if(LLMSERVE_WITH_LLAMA AND BUILD_TESTING)

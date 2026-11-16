@@ -1,29 +1,40 @@
 # LLMServe-Lite 本地推理服务 | tests/integration.py
 # 启动本地 Mock 服务，通过真实 HTTP 连接检查参数、流式响应、拒绝、断连及退出。
 # 先读 server 和 call 掌握怎样发请求，再选一个 test 对照 main.cpp 的对应路由。
+#
+# 阅读地图（按源码顺序）
+#   1 隔离运行 → 2 发送一条请求 → 3 标准指标
+#   4 预算背压 → 5 配置拒绝 → 6 协议验收
+#   7 满队列与健康探针 → 8 验证退出与恢复
 
 
 """Standard-library HTTP tests. Starts/stops only child servers created by this test."""
 
-import concurrent.futures
-import contextlib
-import http.client
-import json
+import concurrent.futures  # 提交并发任务，通过 Future 取回各次结果
+import contextlib  # 管理作用域进入与退出时的操作
+import http.client  # 从客户端发送 HTTP 请求、读取状态与响应体
+import json  # 在 Python 对象和 JSON 文本之间转换
 import os
-from pathlib import Path
-import signal
-import socket
-import subprocess
-import sys
-import tempfile
-import time
-import unittest
+from pathlib import Path  # 拼接目录、文件名并读取文件
+import signal  # 向子进程传递退出信号
+import socket  # 创建套接字或选择本地监听端口
+import subprocess  # 启动外部程序，获取输出或退出码
+import sys  # 访问解释器参数、模块搜索路径等运行环境
+import tempfile  # 为一次测试创建临时文件或目录
+import time  # 记录时间、设置等待间隔或截止时刻
+import unittest  # 组织测试用例并核对预期结果
 
 BINARY = str(Path(sys.argv.pop(1)).resolve())
 ROOT = Path(__file__).resolve().parents[1]
 
 
 @contextlib.contextmanager
+
+
+# 模块 1：隔离运行
+# 每组测试启动自己的服务和配置，因此可以把队列、缓冲、超时设得很小，可靠触发边界。
+
+
 def server(**changes):
     cfg = json.loads((ROOT / 'configs/server.json').read_text())
     with socket.socket() as sock:
@@ -64,7 +75,7 @@ def server(**changes):
                     raise AssertionError(f'server exit {process.returncode}: ' + log.read())
 
 
-# 模块：发送一条请求
+# 模块 2：发送一条请求
 # 测试可以选择传 JSON 或原始字节，观察 HTTP 层实际返回的状态和正文。
 
 
@@ -96,7 +107,8 @@ def wait_metric(port, key, value):
 class HTTPTests(unittest.TestCase):
 
 
-    # 模块：标准指标：成功与失败分开计数，验证累计桶和文本格式
+    # 模块 3：标准指标
+    # 功能：成功与失败分开计数，验证累计桶和文本格式
 
 
     def test_prometheus_and_stage_metrics(self):
@@ -119,7 +131,8 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual(metrics['output_tokens'], 2)
 
 
-    # 模块：预算背压：活动任务不计入等待预算；超过预算拒绝，消费后容量恢复
+    # 模块 4：预算背压
+    # 功能：活动任务不计入等待预算；超过预算拒绝，消费后容量恢复
 
 
     def test_queued_output_budget(self):
@@ -136,7 +149,8 @@ class HTTPTests(unittest.TestCase):
             wait_metric(port, 'queued_output_tokens', 0)
 
 
-    # 模块：配置拒绝：新开关同样执行类型与范围检查，错误配置不能启动服务
+    # 模块 5：配置拒绝
+    # 功能：新开关同样执行类型与范围检查，错误配置不能启动服务
 
 
     def test_new_config_validation(self):
@@ -154,6 +168,11 @@ class HTTPTests(unittest.TestCase):
                 result = subprocess.run([BINARY, str(path)], capture_output=True, timeout=5)
                 self.assertEqual(result.returncode, 1, changes)
                 self.assertIn(b'startup_error', result.stderr)
+
+
+    # 模块 6：协议验收
+    # 普通 JSON 和 SSE 有各自的成功结束方式；逐段核对响应可发现“返回 200 却少了尾段”的问题。
+
 
     def test_json_stream_and_validation(self):
         with server(mock_delay_ms=50) as (port, _):
@@ -206,6 +225,11 @@ class HTTPTests(unittest.TestCase):
             self.assertNotIn('[DONE]', body)
             self.assertEqual(call(port, {'prompt': 'recovery', 'max_tokens': 1})[0], 200)
 
+
+    # 模块 7：满队列与健康探针
+    # 让 worker 有活、队列有人等时再提交，才真正覆盖拒绝路径。此时还能否查健康属于另一项要求。
+
+
     def test_overload_health_and_fifo(self):
         with server(mock_delay_ms=30) as (port, _):
             with concurrent.futures.ThreadPoolExecutor(5) as pool:
@@ -226,6 +250,7 @@ class HTTPTests(unittest.TestCase):
                     [json.loads(r[1])['request_id'] for r in results], ['1', '2', '3', '4', '5']
                 )
 
+    # 排队超时发生在获得 worker 以前，生成超时发生在开始推理以后。给两种场景设置不同负载才能分别验证。
     def test_timeouts(self):
         with server(mock_delay_ms=100, generation_timeout_ms=40) as (port, _):
             self.assertEqual(call(port, {'prompt': 'slow', 'max_tokens': 3})[0], 504)
@@ -237,10 +262,11 @@ class HTTPTests(unittest.TestCase):
                 self.assertEqual(active.result()[0], 200)
 
 
-    # 模块：验证退出与恢复
+    # 模块 8：验证退出与恢复
     # 让连接先断开、服务再退出，检查其余任务能否结束。
 
 
+    # 客户端提前关闭后，服务应能收回该任务并继续响应；有任务时关闭进程则要唤醒等待者。
     def test_disconnect_and_shutdown(self):
         with server(mock_delay_ms=15) as (port, process):
             conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
@@ -267,6 +293,7 @@ class HTTPTests(unittest.TestCase):
                 self.assertEqual(queued.result()[0], 503)
                 self.assertEqual(process.wait(5), 0)
 
+    # 这里发成功、无效参数、引擎错误各一次；HTTP 计数含三次，而调度器只接到通过入参校验的两次。
     def test_http_metrics_scope(self):
         with server(mock_delay_ms=1) as (port, _):
             self.assertEqual(call(port, {'prompt': 'x', 'max_tokens': 1})[0], 200)

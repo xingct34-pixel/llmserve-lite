@@ -2,31 +2,38 @@
 # LLMServe-Lite 本地推理服务 | bench/run.py
 # 压测客户端通过本地 HTTP 发送流式请求，按客户端时钟记录第一段文字和整次完成时间。
 # 它还读取服务进程的内存、退出码和服务端指标。结果保留引擎身份，便于区分模拟与真实生成。
+#
+# 阅读地图（按源码顺序）
+#   1 服务基准 → 2 大文件校验 → 3 分位统计
+#   4 指标读取 → 5 请求测量 → 6 资源采样
+#   7 执行入口 → 8 独立采样
 
 
-# 模块：服务基准：测量SSE请求、并发和长时间稳定性
+# 模块 1：服务基准
+# 功能：测量SSE请求、并发和长时间稳定性
 
 
 """Reproducible low-resource benchmark and soak. No external Python packages."""
-import argparse
-import concurrent.futures
+import argparse  # 读取命令行输入并检查参数格式
+import concurrent.futures  # 提交并发任务，通过 Future 取回各次结果
 import csv
-import hashlib
-import http.client
-import json
+import hashlib  # 按文件或字节内容计算指纹
+import http.client  # 从客户端发送 HTTP 请求、读取状态与响应体
+import json  # 在 Python 对象和 JSON 文本之间转换
 import os
-from pathlib import Path
-import signal
-import socket
-import statistics
-import subprocess
-import threading
-import time
+from pathlib import Path  # 拼接目录、文件名并读取文件
+import signal  # 向子进程传递退出信号
+import socket  # 创建套接字或选择本地监听端口
+import statistics  # 对多次实验样本求统计量
+import subprocess  # 启动外部程序，获取输出或退出码
+import threading  # 让采样、同步等操作与主任务并发进行
+import time  # 记录时间、设置等待间隔或截止时刻
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-# 模块：大文件校验：用固定缓冲避免整文件载入
+# 模块 2：大文件校验
+# 功能：用固定缓冲避免整文件载入
 
 
 def sha256_file(path):
@@ -39,9 +46,11 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
-# 模块：分位统计：从排序样本中取得指定位置
+# 模块 3：分位统计
+# 功能：从排序样本中取得指定位置
 
 
+# 这里按排序后的下标选择实际观测值；和 YOLO Benchmark 在相邻样本间做线性插值的定义不同。
 def percentile(values, p):
     if not values:
         return None
@@ -50,7 +59,8 @@ def percentile(values, p):
     return a[min(len(a) - 1, max(0, int((len(a) - 1) * p + 0.5)))]
 
 
-# 模块：指标读取：请求本地服务的JSON接口
+# 模块 4：指标读取
+# 功能：请求本地服务的JSON接口
 
 
 def get(port, route):
@@ -65,9 +75,11 @@ def get(port, route):
         conn.close()
 
 
-# 模块：请求测量：读取SSE并记录完成状态和首次输出时间
+# 模块 5：请求测量
+# 功能：读取SSE并记录完成状态和首次输出时间
 
 
+# 客户端从发送请求开始计时，直到读到第一段有效文本或生成完成。这个时间自然包含网络与排队。
 def request(port, prompt, output):
     row = {'status': None, 'success': False, 'output_tokens': 0}
     # 客户端TTFT从发起请求前算到读到首个非空delta，含排队和HTTP传输/读取开销。
@@ -117,9 +129,11 @@ def request(port, prompt, output):
     return row
 
 
-# 模块：资源采样：读取进程与系统内存指标
+# 模块 6：资源采样
+# 功能：读取进程与系统内存指标
 
 
+# pid 对应本次启动的服务进程；VmRSS 是当前驻留量，VmHWM 是到采样时为止的驻留高水位。
 def snapshot(pid):
     values = {}
     for line in Path(f'/proc/{pid}/status').read_text().splitlines():
@@ -132,7 +146,8 @@ def snapshot(pid):
     return values
 
 
-# 模块：执行入口：读取参数并组织该工具的完整流程
+# 模块 7：执行入口
+# 功能：读取参数并组织该工具的完整流程
 
 
 def main():
@@ -180,6 +195,11 @@ def main():
     with open(output.with_suffix('.server.log'), 'w') as log:
         process = subprocess.Popen([str(binary), str(cfg_path)], cwd=ROOT, stdout=log, stderr=log)
 
+
+        # 模块 8：独立采样
+        # 把读资源的循环放在另一线程，避免发完全部请求才发现错过了中间的内存峰值。
+
+
         def monitor():
             while not stop.wait(1):
                 try:
@@ -218,6 +238,7 @@ def main():
                     elapsed = time.monotonic() - started
                     # 延迟分位只针对成功样本；429拒绝单列，不能忽略拒绝率比较并发效果。
                     # 吞吐分母是整组墙钟时间；Mock的output_tokens仍是模拟片段数。
+                    # 报告的两个分母不同：成功延迟只用 good，拒绝率和整体吞吐还要看全部请求及整组墙钟时间。
                     good = [r for r in rows if r['success']]
                     group = {
                         'concurrency': concurrency,
@@ -250,6 +271,7 @@ def main():
                     row = request(config['port'], args.prompt, args.max_tokens)
                     count += 1
                     failures += not row['success']
+                    # 持续运行时只留有限条最近明细，另外累计成功失败数；压测工具自身也要控制记录量。
                     recent.append(row)
                     if len(recent) > 20:
                         recent.pop(0)
@@ -292,8 +314,10 @@ def main():
                     process.kill()
                     process.wait()
             report['exit_code'] = process.returncode
+            # process_time 统计当前 Python 客户端实际消耗的 CPU 时间；服务进程资源另从 /proc 采集。
             report['client_cpu_seconds'] = time.process_time() - cpu_begin
             output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n')
+            # JSON 用于查每组请求，CSV 保留按时间采样的内存轨迹。两份文件回答不同的问题。
             with output.with_suffix('.resources.csv').open('w', newline='') as handle:
                 fields = ['at_s', 'VmRSS', 'VmHWM', 'VmSwap', 'Threads', 'MemAvailable', 'SwapFree']
                 writer = csv.DictWriter(handle, fieldnames=fields)

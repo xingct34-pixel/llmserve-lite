@@ -1,24 +1,28 @@
 # LLMServe-Lite 本地推理服务 | bench/validate_real.py
 # 启动真实 CPU 服务并等到就绪，单独记录首次请求，随后多次重复同一负载。
 # one 从 SSE 读出文本和时间戳，汇总时把冷启动、热请求与进程峰值内存分开。
+#
+# 阅读地图（按源码顺序）
+#   1 真实模型验收 → 2 单次流式请求 → 3 首次和热请求
 
 
-# 模块：真实模型验收：组织固定条件下的服务验证
+# 模块 1：真实模型验收
+# 功能：组织固定条件下的服务验证
 
 
 """Validation only: existing service, cold first request plus repeat CPU measurements."""
-from pathlib import Path
-import hashlib
-import http.client
-import importlib.util
-import json
-import signal
-import socket
-import statistics
-import subprocess
-import tempfile
-import threading
-import time
+from pathlib import Path  # 拼接目录、文件名并读取文件
+import hashlib  # 按文件或字节内容计算指纹
+import http.client  # 从客户端发送 HTTP 请求、读取状态与响应体
+import importlib.util  # 按文件路径装载被测模块或检查依赖
+import json  # 在 Python 对象和 JSON 文本之间转换
+import signal  # 向子进程传递退出信号
+import socket  # 创建套接字或选择本地监听端口
+import statistics  # 对多次实验样本求统计量
+import subprocess  # 启动外部程序，获取输出或退出码
+import tempfile  # 为一次测试创建临时文件或目录
+import threading  # 让采样、同步等操作与主任务并发进行
+import time  # 记录时间、设置等待间隔或截止时刻
 
 root = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('benchmark', root / 'bench/run.py')
@@ -44,7 +48,8 @@ report = {
 stop = threading.Event()
 
 
-# 模块：单次流式请求：记录首个文本片段、结束事件和客户端耗时
+# 模块 2：单次流式请求
+# 功能：记录首个文本片段、结束事件和客户端耗时
 
 
 def one():
@@ -75,6 +80,7 @@ def one():
                 continue
             event = json.loads(value)
             if event.get('type') == 'delta':
+                # 收到 HTTP 头还没有文本；TTFT 在第一条有内容的 delta 才截止。终止标记也不算第一段回答。
                 if event['text'] and 'ttft_ms' not in result:
                     result['ttft_ms'] = (time.monotonic() - start) * 1000
                 chunks.append(event['text'])
@@ -90,6 +96,7 @@ def one():
             timings=terminal['timings'],
             finish_reason=terminal['finish_reason'],
         )
+        # 服务报告的输出 token 数除以 decode 毫秒数换算出的秒数；不要用收到的 SSE 文本块数代替 token 数。
         result['decode_tokens_per_second'] = terminal['usage']['completion_tokens'] / (
             terminal['timings']['decode_ms'] / 1000
         )
@@ -129,6 +136,12 @@ with tempfile.TemporaryDirectory(prefix='llmserve-real-validation-') as tmp:
             else:
                 raise RuntimeError('startup timeout')
             report['model_load_to_ready_ms'] = (time.monotonic() - started) * 1000
+
+
+            # 模块 3：首次和热请求
+            # 首次调用可能包含首次执行开销，因此与后面的重复运行分开记录。
+
+
             for index in range(21):
                 result = one()
                 result['index'] = index
@@ -143,6 +156,7 @@ with tempfile.TemporaryDirectory(prefix='llmserve-real-validation-') as tmp:
                 )
                 if not result['success']:
                     raise RuntimeError('real request failed')
+                # 宿主可用内存过低就提前停止实验；解读报告要看实际完成次数，不能直接用计划的请求数。
                 if report['resources'] and report['resources'][-1]['MemAvailable'] < 700 * 1024:
                     raise RuntimeError('WSL memory margin below 700 MiB; stopped')
             report['metrics'] = bench.get(config['port'], '/metrics')

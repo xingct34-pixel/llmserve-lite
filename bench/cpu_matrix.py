@@ -1,14 +1,20 @@
 # LLMServe-Lite 本地推理服务 | bench/cpu_matrix.py
 # 在真实模型上分组改变 CPU 计算线程数和客户端并发度，复用 run.py 的请求与采样函数。
 # 同一模型、同一组输入配不同参数，可以观察多等一会儿来自排队还是生成变慢。
+#
+# 阅读地图（按源码顺序）
+#   1 真实CPU实验 → 2 服务生命周期 → 3 监控子进程
+#   4 执行入口 → 5 改变引擎计算线程数 → 6 改变客户端并发
+#   7 超时后的状态
 
 
-# 模块：真实CPU实验：组织线程数与客户端并发测量
+# 模块 1：真实CPU实验
+# 功能：组织线程数与客户端并发测量
 
 
 """Controlled real-model validation. Standard library only; no downloads."""
 import argparse, concurrent.futures, contextlib, hashlib, http.client, importlib.util, json, signal, socket, subprocess, tempfile, threading, time
-from pathlib import Path
+from pathlib import Path  # 拼接目录、文件名并读取文件
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('bench', ROOT / 'bench/run.py')
@@ -16,7 +22,8 @@ bench = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bench)
 
 
-# 模块：服务生命周期：启动测试子进程并保证退出清理
+# 模块 2：服务生命周期
+# 功能：启动测试子进程并保证退出清理
 
 
 @contextlib.contextmanager
@@ -32,6 +39,11 @@ def server(binary, base, out, label, **changes):
         stop = threading.Event()
         with (out / (label + '.log')).open('w') as log:
             p = subprocess.Popen([str(binary), str(path)], cwd=ROOT, stdout=log, stderr=log)
+
+
+            # 模块 3：监控子进程
+            # 上下文管理器负责成对启动和清理服务。统计中的内存要从服务进程采，不能读压力客户端自己。
+
 
             def monitor():
                 while not stop.wait(0.2):
@@ -80,7 +92,8 @@ def server(binary, base, out, label, **changes):
                 assert p.returncode == 0, (label, p.returncode)
 
 
-# 模块：执行入口：读取参数并组织该工具的完整流程
+# 模块 4：执行入口
+# 功能：读取参数并组织该工具的完整流程
 
 
 def main():
@@ -110,10 +123,11 @@ def main():
     try:
 
 
-        # 模块：改变引擎计算线程数
+        # 模块 5：改变引擎计算线程数
         # 这里调的是服务处理一个请求时可用的 CPU 线程；后面的并发实验才改变客户端数量。
 
 
+        # 同一模型分别用 1、2、4、6 个线程跑。每组里都分开记录长短输入和输出上限。
         for threads in [1, 2, 4, 6]:
             with server(binary, base, out, 'threads-' + str(threads), threads=threads) as (
                 port,
@@ -133,6 +147,12 @@ def main():
         with server(binary, base, out, 'concurrency', threads=4) as (port, resources):
             report['concurrency_resources'] = resources
             assert bench.request(port, short, 8)['success']
+
+
+            # 模块 6：改变客户端并发
+            # 固定服务端计算线程数再改客户端数量，这样能把多请求排队的影响和单次推理多线程区分开。
+
+
             for concurrency in [1, 2, 4, 8]:
                 begin = time.monotonic()
                 with concurrent.futures.ThreadPoolExecutor(concurrency) as pool:
@@ -185,6 +205,12 @@ def main():
             assert metrics['cancelled'] >= 1, metrics
             assert bench.request(port, short, 8)['success']
             report['disconnect_recovery_passed'] = True
+
+
+        # 模块 7：超时后的状态
+        # 记录超时还不够，要观察 active 回落，确认计算任务确实不再占着 worker。
+
+
         with server(binary, base, out, 'timeout', threads=4, generation_timeout_ms=10) as (
             port,
             resources,

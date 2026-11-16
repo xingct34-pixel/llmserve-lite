@@ -1,9 +1,12 @@
 // LLMServe-Lite 本地推理服务 | tests/core_tests.cpp
 // 直接测试 Job 和 Scheduler 的协作。可控的 Gate 引擎可以一直占住 worker，
 // 这样就能稳定制造队列满、执行超时、退出等场景，并核对每个请求收到的最终事件。
+//
+// 阅读地图（按源码顺序）
+//   1 控制 worker 的测试引擎 → 2 逐字节模拟输出 → 3 超出上下文
 
 
-#include "serve.hpp"
+#include "serve.hpp"  // HTTP、调度器与生成引擎共用的配置、请求和任务类型
 #include <iostream>
 #include <stdexcept>
 using namespace serve;
@@ -11,10 +14,11 @@ void check(bool value,const char* message){if(!value)throw std::runtime_error(me
 Json drain(const std::shared_ptr<Job>& j){Json last;while(auto e=j->next())last=*e;return last;}
 
 
-// 模块：控制 worker 的测试引擎
+// 模块 1：控制 worker 的测试引擎
 // 用 release 手动放行。只要第一份任务还在这里等，后续任务就只能排队。
 
 
+// Gate 让测试能指定活跃请求什么时候放行。队列满和等待超时不必依赖真实模型恰好足够慢。
 class Gate final:public Engine {
 public:
     std::atomic<bool> release{false};
@@ -30,7 +34,7 @@ int main(){
         {
 
 
-            // 模块：逐字节模拟输出
+            // 模块 2：逐字节模拟输出
             // 把同一个汉字分几次送进 complete_utf8，凑齐时才应出现文字。
 
 
@@ -50,6 +54,12 @@ int main(){
             while(auto e=j->next()){if((*e)["type"]=="delta")out+=(*e)["text"].get<std::string>();else terminal=*e;}
             check(out=="你好，这是测试。","mock UTF-8");
             check(terminal["usage"]["completion_tokens"]==8,"output accounting");
+
+
+            // 模块 3：超出上下文
+            // 故意构造大输入，检查终止事件里的错误；紧接着发正常请求，可以发现错误状态是否污染后续任务。
+
+
             auto bad=s.submit({std::string(1020,'x'),8,false});bad->await_start();
             check(drain(bad)["code"]=="invalid_request","context rejection");
             auto failure=s.submit({"__error__",8,false});failure->await_start();

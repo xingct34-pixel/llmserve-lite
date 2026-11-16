@@ -1,15 +1,31 @@
 # LLMServe-Lite 本地推理服务 | deploy/prometheus.yml
 # 让 Prometheus 定期抓取本机服务的标准文本指标，同时加载 alerts.yml 的告警规则。
 # 遇到监控无数据，可沿这里的目标地址和指标路径追到 main.cpp 注册的路由。
+#
+# 阅读地图（按源码顺序）
+#   1 本机观测 → 2 抓取节奏 → 3 抓取地址
 
 
-# 模块：本机观测：适用于Linux host-network容器或本机Prometheus，保留服务回环绑定
+# 模块 1：本机观测
+# 功能：适用于Linux host-network容器或本机Prometheus，保留服务回环绑定
 
 
 global:
+
+
+  # 模块 2：抓取节奏
+  # Prometheus 按 5 秒间隔询问服务。两次采样之间的瞬时队列深度可能看不到。
+
+
   scrape_interval: 5s
 rule_files:
   - /etc/prometheus/alerts.yml
+
+
+# 模块 3：抓取地址
+# job、路径和目标主机组成采样任务。回环地址应从 Prometheus 进程所在的网络环境解释。
+
+
 scrape_configs:
   - job_name: llmserve-lite
     metrics_path: /metrics/prometheus

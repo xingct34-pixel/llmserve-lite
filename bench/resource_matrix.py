@@ -1,22 +1,28 @@
 # LLMServe-Lite 本地推理服务 | bench/resource_matrix.py
 # 让现有服务以不同上下文长度和等待队列容量启动，对每种组合发请求并采集资源。
 # 上下文决定一次生成能容纳多少 token，队列容量决定能有多少请求等待，二者分别记录。
+#
+# 阅读地图（按源码顺序）
+#   1 资源矩阵 → 2 执行入口 → 3 模型身份
+#   4 逐组改变资源上限 → 5 过载与失败
 
 
-# 模块：资源矩阵：比较上下文与等待容量的六种配置
+# 模块 1：资源矩阵
+# 功能：比较上下文与等待容量的六种配置
 
 
 """Bounded CPU context/queue resource experiments. Existing model only."""
-import argparse
-import concurrent.futures
-import json
-from pathlib import Path
-import time
+import argparse  # 读取命令行输入并检查参数格式
+import concurrent.futures  # 提交并发任务，通过 Future 取回各次结果
+import json  # 在 Python 对象和 JSON 文本之间转换
+from pathlib import Path  # 拼接目录、文件名并读取文件
+import time  # 记录时间、设置等待间隔或截止时刻
 
 import cpu_matrix as matrix
 
 
-# 模块：执行入口：读取参数并组织该工具的完整流程
+# 模块 2：执行入口
+# 功能：读取参数并组织该工具的完整流程
 
 
 def main():
@@ -50,6 +56,12 @@ def main():
     }
     if args.engine == 'llama':
         model_hash = matrix.bench.sha256_file(root / base['model_path'])
+
+
+        # 模块 3：模型身份
+        # 相同文件名下面也能换权重，真实分支先验内容摘要，才能拿不同配置的结果互相比较。
+
+
         if model_hash != '74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db':
             raise ValueError('model integrity check failed')
         report['model_sha256'] = model_hash
@@ -59,10 +71,11 @@ def main():
         # 配置改变用于观察资源/排队/拒绝，不表示实现了连续批处理或并行模型解码。
 
 
-        # 模块：逐组改变资源上限
+        # 模块 4：逐组改变资源上限
         # 每组都启动对应配置，同模型下才能比较上下文容量和等待队列的影响。
 
 
+        # 三个上下文长度乘两个队列容量，共六组。前者限制一次请求能用的上下文，后者限制等待的请求数。
         for context in (512, 1024, 2048):
             for capacity in (1, 4):
                 label = f'context-{context}-queue-{capacity}'
@@ -87,6 +100,12 @@ def main():
                     elapsed = time.monotonic() - started
                     # TTFT分位只看成功请求，必须连同rejected_429一起解读；拒绝不算引擎生成失败。
                     good = [row for row in rows if row['success']]
+
+
+                    # 模块 5：过载与失败
+                    # 容量不足的 429 单列；其他错误意味着本组实验出了问题，不能混进正常的吞吐结果。
+
+
                     bad = [row for row in rows if not row['success'] and row['status'] != 429]
                     if bad or not good:
                         raise RuntimeError('unexpected failure or no successful sample')

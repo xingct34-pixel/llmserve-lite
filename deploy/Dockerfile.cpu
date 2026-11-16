@@ -1,9 +1,14 @@
 # LLMServe-Lite 本地推理服务 | deploy/Dockerfile.cpu
 # 构建支持 llama.cpp 的 CPU 服务镜像。构建阶段使用预先准备的固定版本源码；
 # 运行时从挂载路径读取模型。镜像可以复用，权重文件单独管理。
+#
+# 阅读地图（按源码顺序）
+#   1 CPU构建 → 2 编译 CPU 后端 → 3 CPU运行
+#   4 运行配置
 
 
-# 模块：CPU构建：源码须先按dependencies.lock.json固定版本准备，不在镜像里下载权重
+# 模块 1：CPU构建
+# 功能：源码须先按dependencies.lock.json固定版本准备，不在镜像里下载权重
 
 
 FROM ubuntu:24.04 AS build
@@ -15,13 +20,20 @@ COPY include include
 COPY src src
 COPY third_party/httplib third_party/httplib
 COPY third_party/nlohmann third_party/nlohmann
+
+
+# 模块 2：编译 CPU 后端
+# 先拷入固定的 llama.cpp 源码，再打开 LLMSERVE_WITH_LLAMA，得到可以读取 GGUF 的二进制。
+
+
 COPY third_party/llama.cpp third_party/llama.cpp
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
       -DLLMSERVE_WITH_LLAMA=ON -DGGML_NATIVE=OFF \
     && cmake --build build -j2
 
 
-# 模块：CPU运行：非root用户只读挂载已校验模型，镜像不包含GGUF或本地敏感配置
+# 模块 3：CPU运行
+# 功能：非root用户只读挂载已校验模型，镜像不包含GGUF或本地敏感配置
 
 
 FROM ubuntu:24.04
@@ -29,6 +41,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 libg
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /source/build/llmserve /app/llmserve
+
+
+# 模块 4：运行配置
+# 配置记录权重位置；运行时需要把权重挂到对应路径。反复启动容器无需反复打包权重。
+
+
 COPY configs/cpu.json /app/config.json
 COPY LICENSE /app/licenses/llmserve-LICENSE
 COPY third_party/httplib/LICENSE /app/licenses/httplib-LICENSE

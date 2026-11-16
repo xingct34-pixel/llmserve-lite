@@ -2,20 +2,29 @@
 // Scheduler 通过 Engine 接口调用这里的生成逻辑。MockEngine 按规则吐出固定片段；
 // LlamaEngine 加载 GGUF，先处理提示词，再逐个预测新 token，通过 emit 把文字交回 Job。
 // 一个 token 可能只包含一个汉字的部分字节，因此输出前要先拼出完整的 UTF-8 字符。
+//
+// 阅读地图（按源码顺序）
+//   1 UTF-8 文本边界处理（complete_utf8） → 2 UTF-8 尾部 → 3 模拟计数（codepoints）
+//   4 模拟引擎（MockEngine） → 5 模拟环境 → 6 后端生命周期
+//   7 CPU模型引擎 → 8 前缀缓存身份 → 9 模型生命周期
+//   10 请求准备 → 11 分词与容量 → 12 上下文容量
+//   13 前缀匹配 → 14 匹配前缀 → 15 取消绑定
+//   16 Prefill → 17 分块预填充 → 18 Decode
+//   19 提交缓存 → 20 引擎工厂
 
 
-#include "serve.hpp"
-#include <algorithm>
+#include "serve.hpp"  // HTTP、调度器与生成引擎共用的配置、请求和任务类型
+#include <algorithm>  // 排序、查找、取最大最小值等标准算法
 #include <stdexcept>
-#include <vector>
+#include <vector>  // 元素连续存放，适合装浮点张量或一组检测记录
 #ifdef LLMSERVE_WITH_LLAMA
-#include "llama.h"
+#include "llama.h"  // llama.cpp 的模型、上下文、分词和执行接口
 #endif
 
 namespace serve {
 
 
-// 模块：UTF-8 文本边界处理（complete_utf8）
+// 模块 1：UTF-8 文本边界处理（complete_utf8）
 // 作用：缓存跨 token 的 UTF-8 字节，只吐出完整字符，并把非法序列替换为 U+FFFD（�）。
 // 通俗讲：一个汉字占 3 个字节，而模型的一个 token 可能只输出了其中 1~2 个字节。
 //         如果直接发给客户端，会看到乱码或半个字。所以没凑齐的字节先留在 buffer 里，下次再拼。
@@ -43,6 +52,12 @@ std::string complete_utf8(std::string& buffer, bool flush) {
             continue;
         }
         // 字节还没收齐：生成未结束就先留着等下次；已结束则只能当作残缺，替换后丢弃
+
+
+        // 模块 2：UTF-8 尾部
+        // 若一个汉字分三字节而本批只到两字节，普通生成先保留尾巴；真正结束时才处理残缺字节。
+
+
         if (pos + width > buffer.size()) {
             if (flush) {
                 out += "\xef\xbf\xbd";
@@ -80,7 +95,7 @@ std::string complete_utf8(std::string& buffer, bool flush) {
 namespace {
 
 
-// 模块：模拟计数（codepoints）
+// 模块 3：模拟计数（codepoints）
 // 作用：仅供 Mock 引擎估算输入有多少个字符。
 // 原理：UTF-8 的后续字节都以 10 开头，不以 10 开头的字节才是一个字符的开头，数它们就是字符数。
 
@@ -92,7 +107,7 @@ size_t codepoints(const std::string& s) {
 }
 
 
-// 模块：模拟引擎（MockEngine）
+// 模块 4：模拟引擎（MockEngine）
 // 固定片段让测试可以控制延迟、队列和错误发生的时机。
 
 
@@ -112,6 +127,12 @@ public:
                         const std::function<bool()>& stop) override {
         // 字符数+8只是Mock的上下文估算，真实引擎使用聊天模板后的实际分词结果。
         const int n = int(codepoints(r.prompt)) + 8;
+
+
+        // 模块 5：模拟环境
+        // Mock 用可预测的计数检查容量与错误路径。这里的计数方式与真实模型的词表分词不同。
+
+
         if (n + r.max_tokens > c_.context_tokens)
             throw std::invalid_argument(
                 "input plus output reservation exceeds context (mock codepoint estimate)");
@@ -143,7 +164,8 @@ public:
 #ifdef LLMSERVE_WITH_LLAMA
 
 
-// 模块：后端生命周期：初始化和释放llama.cpp全局后端
+// 模块 6：后端生命周期
+// 功能：初始化和释放llama.cpp全局后端
 
 
 struct Backend {
@@ -157,7 +179,8 @@ struct Backend {
 };
 
 
-// 模块：CPU模型引擎：持有唯一模型和可复用context
+// 模块 7：CPU模型引擎
+// 功能：持有唯一模型和可复用context
 // RAII管理资源：成员按声明的反序销毁，先context、再model、最后backend。
 // 模型/context启动时创建一次；后续请求复用，但不会共享对话历史。
 
@@ -169,7 +192,8 @@ class LlamaEngine final : public Engine {
     Config c_;
 
 
-    // 模块：前缀缓存身份：只保存上一成功请求的输入token，权重和模板固定在同一引擎
+    // 模块 8：前缀缓存身份
+    // 功能：只保存上一成功请求的输入token，权重和模板固定在同一引擎
 
 
     std::vector<llama_token> previous_prompt_;
@@ -178,6 +202,12 @@ class LlamaEngine final : public Engine {
 public:
     explicit LlamaEngine(Config c) : c_(std::move(c)) {
         // CPU首版不把任何模型层放到GPU计算；GGUF中的量化权重由llama.cpp加载执行。
+
+
+        // 模块 9：模型生命周期
+        // 构造函数加载模型并准备上下文。处理多次请求时复用引擎，所以内存可能保持占用是预期行为。
+
+
         auto mp = llama_model_default_params();
         mp.n_gpu_layers = 0;
         model_.reset(llama_model_load_from_file(c_.model_path.c_str(), mp));
@@ -193,6 +223,7 @@ public:
         ctx_.reset(llama_init_from_model(model_.get(), cp));
         if (!ctx_)
             throw std::runtime_error("cannot allocate llama context");
+        // 聊天模型先把用户文字包装成训练时约定的对话格式；缺少模板时不能随便拼一串字符冒充模型原本的输入。
         if (!llama_model_chat_template(model_.get(), nullptr))
             throw std::runtime_error("model has no chat template");
     }
@@ -207,7 +238,8 @@ public:
         const auto begin = Clock::now();
 
 
-        // 模块：1. 请求准备：清理上次状态并应用聊天模板
+        // 模块 10：请求准备
+        // 功能：清理上次状态并应用聊天模板
         // 清空上一请求的KV等上下文状态，保持请求隔离；这不等于重新加载模型权重。
         // 缓存开关默认为关闭。旧请求的KV在分词后按共同前缀裁剪，绝不直接沿用全部历史。
 
@@ -230,7 +262,8 @@ public:
         }
 
 
-        // 模块：2. 分词与容量：按真实token数检查上下文预留
+        // 模块 11：分词与容量
+        // 功能：按真实token数检查上下文预留
 
 
         auto vocab = llama_model_get_vocab(model_.get());
@@ -245,17 +278,30 @@ public:
             throw std::runtime_error("tokenization failed");
         tokens.resize(n);
         // 容量校验：模板化输入token数+最大输出预留 <= 实际context容量。
+
+
+        // 模块 12：上下文容量
+        // 例如实际分词后输入为 480 个 token，又要最多输出 64 个，512 的上下文容纳不下这次请求。
+
+
         if (n + r.max_tokens > int(llama_n_ctx(ctx_.get())))
             throw std::invalid_argument("templated input plus output reservation exceeds context");
 
 
-        // 模块：前缀匹配：逐token比较，至少重算输入最后一个token以取得本次logits
+        // 模块 13：前缀匹配
+        // 功能：逐token比较，至少重算输入最后一个token以取得本次logits
         // 不是字符串包含关系；共同前缀之外的生成历史必须删除。删除失败则安全退回全量计算。
 
 
         size_t reused = 0;
         const size_t limit =
             std::min({previous.size(), tokens.size() - 1, size_t(c_.prefix_cache_tokens)});
+
+
+        // 模块 14：匹配前缀
+        // 从第一个 token 往后比，相同才可复用；首次不相同就停止。即使提示完全一致，也预留最后一个输入来重算分数。
+
+
         while (reused < limit && previous[reused] == tokens[reused])
             ++reused;
         if (!reused || !llama_memory_seq_rm(llama_get_memory(ctx_.get()), 0, reused, -1)) {
@@ -265,7 +311,8 @@ public:
         const auto prepare_end = Clock::now();
 
 
-        // 模块：3. 取消绑定：让底层计算检查停止并在返回前解除回调
+        // 模块 15：取消绑定
+        // 功能：让底层计算检查停止并在返回前解除回调
 
 
         auto abort = [](void* data) -> bool {
@@ -283,11 +330,18 @@ public:
         } reset{ctx_.get()};
 
 
-        // 模块：4. Prefill：分块处理完整提示词以建立上下文
+        // 模块 16：Prefill
+        // 功能：分块处理完整提示词以建立上下文
         // Prefill：分块处理整段输入并建立KV缓存；每块之间可响应取消。
 
 
         const auto prefill_begin = Clock::now();
+
+
+        // 模块 17：分块预填充
+        // 一次最多提交 128 个尚未复用的提示 token，最后一批按真实剩余量截短。这里尚未开始输出回答。
+
+
         for (int at = int(reused); at < n; at += 128) {
             if (stop())
                 return {n, 0, "cancelled"};
@@ -298,7 +352,8 @@ public:
         const auto prefill_end = Clock::now();
 
 
-        // 模块：5. Decode：逐token采样并投递完整UTF-8文本
+        // 模块 18：Decode
+        // 功能：逐token采样并投递完整UTF-8文本
         // 贪心采样每次选当前最高分token；EOG表示模型主动结束，不计入输出token数。
 
 
@@ -318,6 +373,7 @@ public:
         for (int i = 0; i < r.max_tokens; ++i) {
             if (stop())
                 return g;
+            // 采样拿到的是 token 编号；转成字节、拼成完整字符后才投递，所以一次客户端文本事件不必对应一个 token。
             auto token = llama_sampler_sample(sampler.get(), ctx_.get(), -1);
             if (llama_vocab_is_eog(vocab, token)) {
                 g.finish_reason = "stop";
@@ -326,6 +382,7 @@ public:
             std::vector<char> piece(64);
             int bytes =
                 llama_token_to_piece(vocab, token, piece.data(), int(piece.size()), 0, false);
+            // 这次转换所给空间不足时，负数携带需要的容量；扩容后用同一个 token 重试。
             if (bytes < 0) {
                 piece.resize(-bytes);
                 bytes =
@@ -348,6 +405,12 @@ public:
             emit(tail);
         // decode_ms含采样、文本转换和emit背压等待，不能解释为纯CPU算子执行时间。
         g.decode_ms = millis(decode_begin, Clock::now());
+
+
+        // 模块 19：提交缓存
+        // 只在走到成功收尾并且没有停止时保存这次前缀，避免下次从一次中断留下的状态继续。
+
+
         if (c_.prefix_cache_tokens && !stop()) {
             // 只在本次请求正常结束后允许复用；缓存元数据和KV容量均受context限制。
             tokens.resize(std::min(tokens.size(), size_t(c_.prefix_cache_tokens)));
@@ -360,7 +423,8 @@ public:
 }
 
 
-// 模块：引擎工厂：依据配置创建Mock或CPU后端
+// 模块 20：引擎工厂
+// 功能：依据配置创建Mock或CPU后端
 
 
 std::unique_ptr<Engine> make_engine(const Config& c) {

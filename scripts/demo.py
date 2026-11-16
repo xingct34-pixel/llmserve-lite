@@ -1,23 +1,30 @@
 # LLMServe-Lite 本地推理服务 | scripts/demo.py
 # 一次完整的本地客户端演示。用临时端口启动 CPU 服务，等 /readyz 成功，
 # 再实际请求生成并读取响应。演示结束时关闭本脚本启动的进程，日志保存在 results。
+#
+# 阅读地图（按源码顺序）
+#   1 演示客户端 → 2 执行入口
 
 
-# 模块：演示客户端：调用本地推理接口
+# 模块 1：演示客户端
+# 功能：调用本地推理接口
 
 
 """One-command local CPU demonstration; starts and stops only its own server."""
-from pathlib import Path
+from pathlib import Path  # 拼接目录、文件名并读取文件
 import http.client, json, signal, socket, subprocess, tempfile, time
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-# 模块：执行入口：读取参数并组织该工具的完整流程
+# 模块 2：执行入口
+# 功能：读取参数并组织该工具的完整流程
 
 
+# 这个脚本扮演客户端。阅读时跟着 prompt 从 JSON 请求体到终端输出，实际生成仍在另一个服务进程。
 def main():
     config = json.loads((ROOT / 'configs/cpu.json').read_text())
+    # 端口填 0 让操作系统选择一个空闲端口，再写入临时配置，减少和已运行服务撞端口的机会。
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
         config['port'] = sock.getsockname()[1]
@@ -41,6 +48,7 @@ def main():
                         conn.request('GET', '/readyz')
                         response = conn.getresponse()
                         response.read()
+                        # 探针通过才发正式请求；这样“模型还在加载”和“生成请求失败”在日志中容易区分。
                         if response.status == 200:
                             break
                     except OSError:
@@ -78,6 +86,7 @@ def main():
                     conn.close()
             finally:
                 if process.poll() is None:
+                    # 先让服务按自己的退出流程回收 worker；超过等待上限才处理这个脚本刚创建的子进程。
                     process.send_signal(signal.SIGINT)
                     try:
                         process.wait(15)

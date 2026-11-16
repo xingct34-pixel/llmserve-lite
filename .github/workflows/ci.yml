@@ -1,6 +1,9 @@
 # LLMServe-Lite 本地推理服务 | .github/workflows/ci.yml
 # GitHub 在 Linux 上跑应用层的 mock 和 sanitize 预设，实际步骤交给 scripts/check.sh。
 # 这些作业能检查服务逻辑以及部分内存错误，真实模型走单独的 CPU 工作流。
+#
+# 阅读地图（按源码顺序）
+#   1 测试矩阵
 
 
 name: CPU application checks
@@ -11,6 +14,12 @@ jobs:
   mock:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+
+
+    # 模块 1：测试矩阵
+    # 同一份源码分成 mock 和 sanitize 两次任务；后者额外检查某些内存或未定义行为。
+
+
     strategy:
       matrix:
         preset: [mock, sanitize]

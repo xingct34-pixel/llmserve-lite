@@ -1,18 +1,21 @@
 # LLMServe-Lite 本地推理服务 | tests/download_tests.py
 # 用小段内存数据模拟官方元数据和下载响应，再调用真正的下载脚本逻辑。
 # 刻意返回摘要不匹配、续传失败或错误大小，检查残缺内容能否被挡在正式模型文件之外。
+#
+# 阅读地图（按源码顺序）
+#   1 模拟网络响应 → 2 假网络 → 3 检查续传协议
 
 
 """Offline download safety tests. Payload is fake bytes in temporary directories, never a model."""
-import contextlib
-import hashlib
-import importlib.util
-import io
-import json
-from pathlib import Path
-import tempfile
-import unittest
-from unittest.mock import patch
+import contextlib  # 管理作用域进入与退出时的操作
+import hashlib  # 按文件或字节内容计算指纹
+import importlib.util  # 按文件路径装载被测模块或检查依赖
+import io  # 把内存缓冲当成可读写的流
+import json  # 在 Python 对象和 JSON 文本之间转换
+from pathlib import Path  # 拼接目录、文件名并读取文件
+import tempfile  # 为一次测试创建临时文件或目录
+import unittest  # 组织测试用例并核对预期结果
+from unittest.mock import patch  # 用可控对象替换依赖，构造可重复的测试条件
 import urllib.error
 
 spec=importlib.util.spec_from_file_location('fetch_model',Path(__file__).resolve().parents[1]/'scripts/fetch_model.py')
@@ -23,7 +26,7 @@ REV='a'*40
 SHA=hashlib.sha256(PAYLOAD).hexdigest()
 
 
-# 模块：模拟网络响应
+# 模块 1：模拟网络响应
 # 用内存里的字节和响应头代替连接，下载函数仍按平时的方式读取。
 
 
@@ -43,6 +46,11 @@ class DownloadTests(unittest.TestCase):
         for name,value in [('ROOT',self.root),('LIMIT',1000),('MIN_BYTES',1)]:
             patcher=patch.object(fetch,name,value)
             patcher.start();self.addCleanup(patcher.stop)
+
+
+    # 模块 2：假网络
+    # 让脚本读到可控的小段字节和 HTTP 元数据，每一种失败都能离线重现，不必下载整份 GGUF。
+
 
     def network(self,url,timeout):
         if isinstance(url,str):
@@ -94,10 +102,11 @@ class DownloadTests(unittest.TestCase):
         self.assertTrue((self.folder/(fetch.NAME+'.part')).exists())
 
 
-    # 模块：检查续传协议
+    # 模块 3：检查续传协议
     # 服务器如果返回完整文件，直接接在残片后面会把文件写长。
 
 
+    # 客户端要求从中间接，服务器却回完整文件；如果照常追加，最终文件会把开头重复一遍。
     def test_refuse_server_ignoring_resume(self):
         (self.folder/(fetch.NAME+'.part')).write_bytes(PAYLOAD[:5])
         def ignored(url,timeout):
@@ -113,6 +122,7 @@ class DownloadTests(unittest.TestCase):
             self.assertIn('size range',self.run_fetch(expected_code=1)['last_error'])
         self.assertFalse((self.folder/fetch.NAME).exists())
 
+    # 已有正式文件校验失败时，测试还检查原有内容是否保留，避免为修复下载而覆盖用户文件。
     def test_existing_corrupt_file_is_preserved(self):
         final=self.folder/fetch.NAME
         final.write_bytes(b'user-existing-bytes')

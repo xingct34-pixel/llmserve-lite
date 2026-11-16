@@ -2,10 +2,20 @@
 // 实现 serve.hpp 里的 Config、Job 和 Scheduler。HTTP 线程提交 Job 后，可以继续接待别人；
 // 一个推理 worker 从等待队列取出它，调用 Engine::generate，把文字片段写进该 Job 的事件队列。
 // 一条队列存“还没开始的请求”，另一条存“这个请求已经生成、尚未被读走的文字”。
+//
+// 阅读地图（按源码顺序）
+//   1 计时辅助（millis） → 2 日志输出（log） → 3 配置加载（Config::load）
+//   4 读取配置 → 5 任务初始化（Job 构造函数） → 6 任务取消（Job::cancel）
+//   7 执行期限检查（Job::stopped） → 8 文本投递（Job::emit） → 9 慢客户端
+//   10 首段时间 → 11 任务终结（Job::finish） → 12 事件消费（Job::next）
+//   13 排队等待（Job::await_start） → 14 调度初始化（Scheduler 构造函数） → 15 调度清理（Scheduler 析构函数）
+//   16 任务接入（Scheduler::submit） → 17 清理排队任务 → 18 等待计算预算
+//   19 推理循环（Scheduler::run） → 20 单 worker 循环 → 21 成功与失败分开统计
+//   22 成功耗时归档 → 23 退出处理（Scheduler::stop） → 24 指标快照（Scheduler::metrics）
 
 
-#include "serve.hpp"
-#include <algorithm>
+#include "serve.hpp"  // HTTP、调度器与生成引擎共用的配置、请求和任务类型
+#include <algorithm>  // 排序、查找、取最大最小值等标准算法
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -13,7 +23,7 @@
 namespace serve {
 
 
-// 模块：计时辅助（millis）
+// 模块 1：计时辅助（millis）
 // 作用：计算两个时间点之间相差多少毫秒，返回 double 保留小数。
 // 通俗讲：Clock 是单调时钟，只增不减，不受系统改时间影响，量耗时最可靠。
 
@@ -23,7 +33,7 @@ double millis(Clock::time_point a, Clock::time_point b) {
 }
 
 
-// 模块：日志输出（log）
+// 模块 2：日志输出（log）
 // 作用：给每条事件加上时间戳，并加锁后以 JSON 形式写到标准错误，保证多线程日志不会互相穿插。
 // system_clock 记录人能看懂的墙钟时间；耗时统计则用 steady_clock，避免系统校时影响差值。
 // 调用方约定不把提示词正文写入日志，避免泄露用户内容。
@@ -43,13 +53,19 @@ void log(const Json& event) {
 }
 
 
-// 模块：配置加载（Config::load）
+// 模块 3：配置加载（Config::load）
 // 作用：读取配置文件，检查字段是否合法、类型是否正确，并确保各项数值落在本项目的资源边界内。
 // 通俗讲：像入职体检，任何一项不合格就拒绝启动，而不是带病运行。
 
 
 Config Config::load(const std::string& path) {
     std::ifstream file(path);
+
+
+    // 模块 4：读取配置
+    // 先读 JSON，再按字段检查类型和范围。拼错字段名要在启动时暴露，否则服务可能带着默认值运行。
+
+
     if (!file)
         throw std::runtime_error("cannot open config: " + path);
     Json j;
@@ -135,7 +151,7 @@ Config Config::load(const std::string& path) {
 }
 
 
-// 模块：任务初始化（Job 构造函数）
+// 模块 5：任务初始化（Job 构造函数）
 // 作用：保存不可变的请求内容和配置快照。用 move 避免拷贝大字符串。
 
 
@@ -144,13 +160,14 @@ Job::Job(std::string value, Request req, const Config& cfg)
 }
 
 
-// 模块：任务取消（Job::cancel）
+// 模块 6：任务取消（Job::cancel）
 // 作用：记录取消原因、置取消标志，并唤醒所有在等待的线程。
 // 只有"尚未结束且尚未被取消"时才写入原因，所以第一个取消原因会被保留，不会被后来者覆盖。
 
 
 void Job::cancel(const std::string& reason) {
     std::lock_guard<std::mutex> lock(mutex);
+    // 多个线程都可能要求停止同一请求。持锁检查旧状态，保留先发生的取消原因，后续错误才有可解释的来源。
     if (!done && !cancelled.load()) {
         cancel_reason = reason;
         cancelled = true;
@@ -159,7 +176,7 @@ void Job::cancel(const std::string& reason) {
 }
 
 
-// 模块：执行期限检查（Job::stopped）
+// 模块 7：执行期限检查（Job::stopped）
 // 作用：协作式检查"是否被取消"或"生成是否超时"。
 // 生成期限从 started 算，排队期限从 submitted 算，二者不会混成一个超时。
 // 协作式取消：引擎在检查点调用此函数，不是强杀正在运行的线程。
@@ -180,7 +197,7 @@ bool Job::stopped() {
 }
 
 
-// 模块：文本投递（Job::emit）
+// 模块 8：文本投递（Job::emit）
 // 作用：引擎产出文本后放入有界缓冲，缓冲满时限时等待，防止慢客户端拖垮服务。
 // 返回 true 表示投递成功，false 表示应当停止生成。
 
@@ -196,6 +213,12 @@ bool Job::emit(const std::string& text) {
         std::min(Clock::now() + std::chrono::milliseconds(config.backpressure_timeout_ms),
                  started + std::chrono::milliseconds(config.generation_timeout_ms));
     // wait_until 返回 false 表示到期时条件仍不满足（缓冲还是满的，也没被取消）
+
+
+    // 模块 9：慢客户端
+    // worker 产出片段比客户端读得快，events 会填满。等待时释放 mutex，读线程才能进来取片段、腾空位。
+
+
     if (!cv.wait_until(lock, until, [&] {
             return events.size() < size_t(config.event_capacity) || cancelled.load();
         })) {
@@ -209,6 +232,12 @@ bool Job::emit(const std::string& text) {
     if (cancelled.load())
         return false;
     // first是首个完整文本片段入队的时刻，不是客户端真正收到数据的时刻。
+
+
+    // 模块 10：首段时间
+    // first 只在第一次投递文本时记录。后面再来十个片段也不能覆盖它，否则首段延迟会变成最后一段延迟。
+
+
     if (first == Clock::time_point{})
         first = Clock::now();
     events.push_back({{"type", "delta"}, {"request_id", id}, {"text", text}});
@@ -217,7 +246,7 @@ bool Job::emit(const std::string& text) {
 }
 
 
-// 模块：任务终结（Job::finish）
+// 模块 11：任务终结（Job::finish）
 // 作用：写入唯一的终态事件（成功或错误），标记完成并唤醒消费者。
 
 
@@ -234,7 +263,7 @@ void Job::finish(const Json& event) {
 }
 
 
-// 模块：事件消费（Job::next）
+// 模块 12：事件消费（Job::next）
 // 作用：HTTP 线程调用它取下一个事件：先取完所有文本片段，最后取一次终态，之后返回空表示流结束。
 
 
@@ -244,6 +273,7 @@ std::optional<Json> Job::next() {
     while (events.empty() && !done)
         cv.wait_for(lock, std::chrono::milliseconds(50));
     // 先读完已产生的delta，再读一次终态；随后nullopt表示事件流结束。
+    // 先读剩余文本，再读终止事件。最后一个 delta 已生成并不等于客户端已经消费了它。
     if (!events.empty()) {
         auto e = std::move(events.front());
         events.pop_front();
@@ -251,6 +281,7 @@ std::optional<Json> Job::next() {
         cv.notify_all();
         return e;
     }
+    // 终止事件只应读取一次。已经取过终止事件后，next 返回 nullopt 告知调用者结束循环。
     if (!terminal_read) {
         terminal_read = true;
         return terminal;
@@ -259,7 +290,7 @@ std::optional<Json> Job::next() {
 }
 
 
-// 模块：排队等待（Job::await_start）
+// 模块 13：排队等待（Job::await_start）
 // 作用：在排队期限内等待 worker 开始处理或任务提前结束。
 // 返回 true 表示已开始执行；false 表示排队超时或被取消。
 
@@ -280,7 +311,7 @@ bool Job::await_start() {
 }
 
 
-// 模块：调度初始化（Scheduler 构造函数）
+// 模块 14：调度初始化（Scheduler 构造函数）
 // 作用：接管引擎，并启动唯一的推理 worker 线程。
 // 注意：成员按声明顺序初始化，worker_ 在函数体里才启动，此时其他成员都已就绪。
 
@@ -291,7 +322,7 @@ Scheduler::Scheduler(Config c, std::unique_ptr<Engine> engine)
 }
 
 
-// 模块：调度清理（Scheduler 析构函数）
+// 模块 15：调度清理（Scheduler 析构函数）
 // 作用：析构前先停止任务并回收 worker 线程，避免线程还在跑时对象已被销毁。
 
 
@@ -300,7 +331,7 @@ Scheduler::~Scheduler() {
 }
 
 
-// 模块：任务接入（Scheduler::submit）
+// 模块 16：任务接入（Scheduler::submit）
 // 作用：先清理已取消或已超时的等待者，再做预算和容量检查，通过后创建任务入队。
 // 返回空指针表示拒绝（队列满或预算不足）。
 
@@ -308,6 +339,12 @@ Scheduler::~Scheduler() {
 std::shared_ptr<Job> Scheduler::submit(Request r) {
     std::lock_guard<std::mutex> lock(mutex_);
     // 接收新任务前清理已取消/过期的等待者，防止无效Job一直占据容量。
+
+
+    // 模块 17：清理排队任务
+    // erase 后原迭代器失效；用返回值前进，才能继续检查紧邻的下一个过期任务。
+
+
     for (auto it = queue_.begin(); it != queue_.end();) {
         auto& j = *it;
         if (j->cancelled.load() ||
@@ -333,7 +370,7 @@ std::shared_ptr<Job> Scheduler::submit(Request r) {
     }
 
 
-    // 模块：等待计算预算
+    // 模块 18：等待计算预算
     // 作用：把所有排队请求的 max_tokens 加起来作为"排队债务"，超过预算就拒绝新请求。
     // 仍保持 FIFO，不推测 GPU 显存占用。
 
@@ -342,6 +379,7 @@ std::shared_ptr<Job> Scheduler::submit(Request r) {
     for (const auto& pending : queue_)
         reserved_output += pending->request.max_tokens;
     // 预算为 0 表示关闭此功能
+    // 预算是等待任务申请的最大输出 token 总量。队列还有空位时，长请求也可能因为剩余预算不足被拒绝。
     if (config_.queued_output_budget &&
         reserved_output + r.max_tokens > config_.queued_output_budget) {
         ++rejected_;
@@ -365,12 +403,18 @@ std::shared_ptr<Job> Scheduler::submit(Request r) {
 }
 
 
-// 模块：推理循环（Scheduler::run）
+// 模块 19：推理循环（Scheduler::run）
 // 作用：worker 线程的主循环：从队头取任务 → 在队列锁外执行生成 → 记录终态与统计。
 // 通俗讲：唯一的厨师不停地从订单队列拿单子做菜，做菜时不占着订单台，别人仍可下单。
 
 
 void Scheduler::run() {
+
+
+    // 模块 20：单 worker 循环
+    // 先在队列锁内取一个任务，再离开队列临界区跑推理；其他 HTTP 线程这时仍可提交任务。
+
+
     for (;;) {
         std::shared_ptr<Job> job;
         {
@@ -409,6 +453,7 @@ void Scheduler::run() {
             if (job->cancelled.load())
                 throw std::runtime_error("cancelled before start");
             // 引擎通过回调向Job投递文本、检查停止；HTTP线程通过next()独立消费这些事件。
+            // 两个回调把引擎和任务接起来：引擎有新字节就投递给 job；生成中途则用另一个回调查询是否该停。
             auto g = engine_->generate(
                 job->request,
                 [&](const std::string& s) {
@@ -469,11 +514,17 @@ void Scheduler::run() {
         log(record);
         {
             std::lock_guard<std::mutex> lock(mutex_);
+
+
+            // 模块 21：成功与失败分开统计
+            // 出错的请求可能没有首段文本和完整 decode 数据，不能用 0 填进成功延迟分布。
+
+
             if (terminal["type"] == "done") {
                 ++completed_;
 
 
-                // 模块：成功耗时归档
+                // 模块 22：成功耗时归档
                 // 作用：把成功请求的各阶段耗时放进直方图，并累计 token 数。
                 // 每个请求只统计一次；失败、取消和超时由独立计数表示，不混进耗时分布。
 
@@ -509,7 +560,7 @@ void Scheduler::run() {
 }
 
 
-// 模块：退出处理（Scheduler::stop）
+// 模块 23：退出处理（Scheduler::stop）
 // 作用：取消正在运行的任务和所有排队任务，然后等待 worker 线程结束。
 // 停止时取消active并给排队任务写终态、通知等待者，再join；这里不是排空所有任务。
 // engine_在worker结束后才销毁，避免推理线程访问已释放的模型/context。
@@ -532,12 +583,13 @@ void Scheduler::stop() {
         cv_.notify_all();
     }
     // 在锁外 join，否则 worker 想拿锁就会死锁；joinable 判断保证重复调用 stop 也安全
+    // 先唤醒等待线程、发出停止，再 join。join 只等线程返回，本身不会把睡眠中的线程叫醒。
     if (worker_.joinable())
         worker_.join();
 }
 
 
-// 模块：指标快照（Scheduler::metrics）
+// 模块 24：指标快照（Scheduler::metrics）
 // 作用：在加锁状态下读取接入、完成、失败、队列深度等计数，打包成 JSON 返回给 /metrics。
 
 

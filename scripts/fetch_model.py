@@ -2,20 +2,25 @@
 # LLMServe-Lite 本地推理服务 | scripts/fetch_model.py
 # 为真实引擎准备指定的官方 GGUF。先读取仓库版本、文件大小和摘要，再分块下载或续传。
 # 核对 SHA-256 后才把文件作为正式模型使用；tests/download_tests.py 用小段假数据覆盖出错分支。
+#
+# 阅读地图（按源码顺序）
+#   1 模型准备 → 2 文件校验 → 3 执行入口
+#   4 固定下载身份 → 5 断点续传 → 6 检查完整性
 
 
-# 模块：模型准备：固定官方来源并校验授权权重的完整性
+# 模块 1：模型准备
+# 功能：固定官方来源并校验授权权重的完整性
 
 
 """Fetch only the approved official Q4_K_M file, pin revision and verify LFS SHA-256."""
-import hashlib
-import json
-from pathlib import Path
+import hashlib  # 按文件或字节内容计算指纹
+import json  # 在 Python 对象和 JSON 文本之间转换
+from pathlib import Path  # 拼接目录、文件名并读取文件
 import shutil
-import sys
-import time
+import sys  # 访问解释器参数、模块搜索路径等运行环境
+import time  # 记录时间、设置等待间隔或截止时刻
 import urllib.error
-import urllib.request
+import urllib.request  # 发出 HTTP 请求，按流读取响应
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = 'Qwen/Qwen2.5-0.5B-Instruct-GGUF'
@@ -24,7 +29,8 @@ LIMIT = 600_000_000
 MIN_BYTES = 100_000_000
 
 
-# 模块：文件校验：计算输入或程序摘要
+# 模块 2：文件校验
+# 功能：计算输入或程序摘要
 
 
 def digest(path):
@@ -35,7 +41,8 @@ def digest(path):
     return result.hexdigest()
 
 
-# 模块：执行入口：读取参数并组织该工具的完整流程
+# 模块 3：执行入口
+# 功能：读取参数并组织该工具的完整流程
 
 
 def main():
@@ -73,6 +80,12 @@ def main():
             if not MIN_BYTES < record['expected_bytes'] <= LIMIT:
                 raise RuntimeError('refusing file outside approved small-model size range')
             manifest_path.write_text(json.dumps(record, indent=2) + '\n')
+
+
+        # 模块 4：固定下载身份
+        # 已有清单也要核对仓库、文件名和元数据，防止把其他权重当作指定模型续传。
+
+
         if (
             record.get('repo') != REPO
             or record.get('filename') != NAME
@@ -99,13 +112,14 @@ def main():
                 'existing model fails verification; refusing to replace it automatically'
             )
         url = f'https://huggingface.co/{REPO}/resolve/{record["revision"]}/{NAME}'
+        # 下载未完成时使用另一个文件名。能够看到 .part 只表示有一些字节到达，不能把它当成可推理权重。
         partial = folder / (NAME + '.part')
         offset = partial.stat().st_size if partial.exists() else 0
         if offset > record['expected_bytes']:
             raise RuntimeError('partial file exceeds expected size')
 
 
-        # 模块：断点续传
+        # 模块 5：断点续传
         # offset 是磁盘上已有的字节数，只有尚缺数据时才发下载请求。
 
 
@@ -114,6 +128,7 @@ def main():
             with urllib.request.urlopen(
                 urllib.request.Request(url, headers=headers), timeout=20
             ) as response:
+                # 服务端必须确认本次 Range 的开始位置。若把从头返回的 200 响应当成剩余字节追加，就会重复拼入前半段。
                 if offset and (
                     response.status != 206
                     or not response.headers.get('Content-Range', '').startswith(f'bytes {offset}-')
@@ -138,10 +153,11 @@ def main():
         sha = digest(partial)
 
 
-        # 模块：检查完整性
+        # 模块 6：检查完整性
         # 字节数检出短文件；SHA-256 检出长度正确但内容不同的文件。
 
 
+        # 大小对只能说明长度一致。SHA-256 相同才能确认整个文件字节与固定版本预期相符。
         if size != record['expected_bytes'] or sha != record['expected_sha256']:
             raise RuntimeError('download failed byte count / official LFS SHA-256 verification')
         partial.rename(final)

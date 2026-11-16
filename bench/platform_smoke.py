@@ -2,25 +2,31 @@
 # LLMServe-Lite 本地推理服务 | bench/platform_smoke.py
 # 从服务外部检查真实 CPU 容器、Prometheus 和 Grafana 能否连起来。
 # 脚本向本机服务施加负载，再查指标、内部告警状态和仪表盘接口，在收尾时释放自己创建的容器。
+#
+# 阅读地图（按源码顺序）
+#   1 HTTP轮询 → 2 平台验收 → 3 追踪容器
+#   4 容器启动 → 5 验证仪表盘 → 6 真实过载
+#   7 检查告警状态 → 8 清理顺序
 
 
 """Run only owned Linux containers; verify real inference, monitoring and internal alerts."""
-import argparse
-import concurrent.futures
-import json
-from pathlib import Path
-import subprocess
-import socket
-import tempfile
-import time
+import argparse  # 读取命令行输入并检查参数格式
+import concurrent.futures  # 提交并发任务，通过 Future 取回各次结果
+import json  # 在 Python 对象和 JSON 文本之间转换
+from pathlib import Path  # 拼接目录、文件名并读取文件
+import subprocess  # 启动外部程序，获取输出或退出码
+import socket  # 创建套接字或选择本地监听端口
+import tempfile  # 为一次测试创建临时文件或目录
+import time  # 记录时间、设置等待间隔或截止时刻
 import urllib.parse
-import urllib.request
+import urllib.request  # 发出 HTTP 请求，按流读取响应
 import uuid
 
 from run import ROOT, get, request, sha256_file
 
 
-# 模块：HTTP轮询：只访问本机，返回JSON或明确超时，不修改系统网络设置
+# 模块 1：HTTP轮询
+# 功能：只访问本机，返回JSON或明确超时，不修改系统网络设置
 
 
 def read_json(url):
@@ -28,6 +34,7 @@ def read_json(url):
         return json.load(response)
 
 
+# 服务进程、抓取器和告警引擎的启动时间各不相同。用截止时间轮询真实状态，比固定睡几秒更能定位失败环节。
 def wait_for(check, seconds=90):
     deadline = time.monotonic() + seconds
     last_error = None
@@ -42,7 +49,8 @@ def wait_for(check, seconds=90):
     raise RuntimeError(f'local container check timed out: {last_error}')
 
 
-# 模块：平台验收：权重只读挂载，Prometheus/Grafana固定版本且仅绑定回环
+# 模块 2：平台验收
+# 功能：权重只读挂载，Prometheus/Grafana固定版本且仅绑定回环
 
 
 def main():
@@ -73,6 +81,11 @@ def main():
         if result.returncode:
             raise RuntimeError('docker ' + parts[0] + ': ' + result.stderr[-3000:])
         return result.stdout.strip()
+
+
+    # 模块 3：追踪容器
+    # 保留自己启动的容器 ID，异常时也能只清理本实验的资源。
+
 
     def start(image, *parts, command=()):
         identifier = docker(
@@ -142,7 +155,8 @@ providers:
             (directory / 'dashboard.json').write_text(json.dumps(dashboard))
 
 
-            # 模块：容器启动：只读挂载模型与配置，资源上限只作用于本测试的容器
+            # 模块 4：容器启动
+            # 功能：只读挂载模型与配置，资源上限只作用于本测试的容器
 
 
             service = start(
@@ -206,6 +220,12 @@ providers:
                 lambda: read_json('http://127.0.0.1:3000/api/dashboards/uid/llmserve-lite-cpu')
             )
             report['dashboard_panels'] = len(registered['dashboard']['panels'])
+
+
+            # 模块 5：验证仪表盘
+            # Grafana 能打开网页并不足以证明配置加载成功，因此还核对实际读取的面板数与数据源。
+
+
             if report['dashboard_panels'] != 4:
                 raise RuntimeError('dashboard provisioning did not load expected panels')
             datasource = read_json('http://127.0.0.1:3000/api/datasources/uid/llmserve-prometheus')
@@ -222,13 +242,19 @@ providers:
             time.sleep(2)  # 先形成零拒绝计数的抓取基线，再制造过载
 
 
-            # 模块：真实过载：先确认一个任务正在运行，再发并发请求，拒绝不算成功
+            # 模块 6：真实过载
+            # 功能：先确认一个任务正在运行，再发并发请求，拒绝不算成功
 
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=9) as pool:
                 active = pool.submit(request, 8080, '从1开始依次列出三十个数字，使用逗号分隔。', 64)
                 wait_for(lambda: get(8080, '/metrics')['active'] == 1, seconds=15)
                 pending = [pool.submit(request, 8080, '请简短介绍可靠队列。', 8) for _ in range(8)]
+
+
+                # 模块 7：检查告警状态
+                # 产生拒绝之后，等 Prometheus 抓取并计算规则。一次查询暂时为空不能说明告警失效。
+
 
                 def rejection_fired():
                     alerts = read_json('http://127.0.0.1:9090/api/v1/alerts')['data']['alerts']
@@ -272,6 +298,12 @@ providers:
             if report['service_exit_code'] != 0:
                 raise RuntimeError('real service did not stop cleanly')
     finally:
+
+
+        # 模块 8：清理顺序
+        # 倒序停止自己启动的容器，让依赖服务的组件先退出；服务日志可用来追查失败阶段。
+
+
         for identifier in reversed(containers):
             subprocess.run(['docker', 'logs', '--tail', '40', identifier], check=False)
             subprocess.run(
