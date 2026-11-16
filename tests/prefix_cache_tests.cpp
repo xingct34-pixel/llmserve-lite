@@ -1,10 +1,7 @@
 // LLMServe-Lite 本地推理服务 | tests/prefix_cache_tests.cpp
-// 在真实模型上比较开启和关闭前缀缓存的请求，记录复用数量和文本差异。
+// 功能：在真实模型上比较开启和关闭前缀缓存的请求，记录复用数量和文本差异。
 // 还主动中止请求、发送超长输入，再检查下一次生成是否带入前一次留下的状态。
-//
-// 阅读地图（按源码顺序）
-//   1 真实缓存回归 → 2 建立基线 → 3 取消后的第一条请求
-//   4 取消后的隔离
+// 目的：在真实引擎上检查复用收益的计数和任务间隔离，尤其是上次任务异常结束之后。
 
 
 #include "serve.hpp"  // HTTP、调度器与生成引擎共用的配置、请求和任务类型
@@ -12,10 +9,8 @@
 #include <stdexcept>
 
 
-// 模块 1：真实缓存回归
+// 模块：真实缓存回归（main）
 // 功能：记录与全量prefill的文本差异，严格检查失效后的隔离恢复
-
-
 int main(int argc, char** argv) {
     try {
         if (argc != 2)
@@ -28,10 +23,8 @@ int main(int argc, char** argv) {
         config.threads = 2;
 
 
-        // 模块 2：建立基线
+        // 建立基线
         // 用独立引擎分别跑关闭缓存和开启缓存的路径；固定提示词能让两组输出有可比性。
-
-
         auto baseline = serve::make_engine(config);
         config.prefix_cache_tokens = 256;
         auto cached = serve::make_engine(config);
@@ -90,17 +83,14 @@ int main(int argc, char** argv) {
         }
 
 
-        // 模块 3：取消后的第一条请求
+        // 取消后的第一条请求
         // 复用量应回到零，再将输出与干净上下文的基线比较。
-
-
+        // 取消后马上再发可复现的提示词，同时核对输出和复用数。只看生成文字可能掩盖错误复用；只看缓存计数又不知道下一次生成是否受污染。
         const auto after_cancel = run(*cached, a);
 
 
-        // 模块 4：取消后的隔离
+        // 取消后的隔离
         // 上一请求在中途结束，这一条必须从干净状态开始，检查复用数为零并与基线结果比对。
-
-
         if (after_cancel.second.cached_prompt_tokens != 0 || after_cancel.first != full_a.first)
             throw std::runtime_error("cancelled request leaked cached state");
         try {

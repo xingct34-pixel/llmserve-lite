@@ -1,10 +1,8 @@
 // LLMServe-Lite 本地推理服务 | include/observability.hpp
-// 声明服务的耗时统计接口。Scheduler 在 core.cpp 里记录一次观测，Histogram 按耗时分桶；
+// 功能：声明服务的耗时统计接口。Scheduler 在 core.cpp 里记录一次观测，Histogram 按耗时分桶；
 // main.cpp 提供查询入口，src/observability.cpp 负责把快照转成监控工具能读取的格式。
 // 例如 12 毫秒落在上界为 20 毫秒的桶里。服务只需增加计数，运行再久桶数也固定。
-//
-// 阅读地图（按源码顺序）
-//   1 有界直方图（Histogram） → 2 标准指标导出（prometheus）
+// 目的：用固定数量的计数器保存长期时延分布，避免逐请求保存历史记录。
 
 
 #pragma once
@@ -16,15 +14,14 @@
 namespace serve {
 
 
-// 模块 1：有界直方图（Histogram）
+// 模块：有界直方图（Histogram）
 // 作用：把耗时按固定的区间统计"落在每个区间的请求有多少个"，而不保存每个请求的明细。
 // 固定时间边界和桶数量，所以无论服务运行多久，占用的内存都不变。
 // 调用方负责线程同步：这个结构自己不加锁，Scheduler 在持有 mutex_ 时才会调用它。
 // counts 记录每个区间的数量；导出时累加，生成 Prometheus 需要的累计桶。
 // 通俗讲：像体育课测跑步成绩，不记每个人的具体秒数，只记"10 秒内几人、10~20 秒几人、20 秒以上几人"，
 //         记录本永远只有这么几行，但依然能看出整体快慢分布。
-
-
+// bounds 有 9 个上界，counts 多出一格收下所有超过 120 秒的样本。若刚好 120 秒仍属于有上界的那格；单格计数如何变成累计数见 Histogram::json。
 // 一个请求结束时给一个桶加一，不必把所有历史请求时长存下来。边界单位是秒。
 struct Histogram {
     // 各桶的上边界，单位为秒：1 毫秒、5 毫秒、20 毫秒、100 毫秒、0.5 秒、1 秒、5 秒、30 秒、120 秒。
@@ -44,11 +41,9 @@ struct Histogram {
 };
 
 
-// 模块 2：标准指标导出（prometheus）
+// 模块：标准指标导出（prometheus）
 // 作用：把调度器的指标快照（JSON）转成 Prometheus 能识别的文本格式，指标名称固定。
 // 通俗讲：Prometheus 是常用的监控系统，只认它规定的文本格式，这个函数负责"翻译"，监控系统就能定时来抓取。
-
-
 std::string prometheus(const nlohmann::json& snapshot);
 
 

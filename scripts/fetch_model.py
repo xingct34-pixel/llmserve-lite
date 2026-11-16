@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 # LLMServe-Lite 本地推理服务 | scripts/fetch_model.py
-# 为真实引擎准备指定的官方 GGUF。先读取仓库版本、文件大小和摘要，再分块下载或续传。
+# 功能：为真实引擎准备指定的官方 GGUF。先读取仓库版本、文件大小和摘要，再分块下载或续传。
 # 核对 SHA-256 后才把文件作为正式模型使用；tests/download_tests.py 用小段假数据覆盖出错分支。
+# 目的：保证最终模型与选定的官方文件身份相符，并让中断下载有机会接着进行。
 #
 # 阅读顺序：固定要取的文件和版本 → 续传分块 → 核对大小与哈希。
 
 
-# 模块 1：模型准备
+# 模块：模型准备
 # 功能：固定官方来源并校验授权权重的完整性
-
-
 """Fetch only the approved official Q4_K_M file, pin revision and verify LFS SHA-256."""
 import hashlib
 import json
@@ -27,10 +26,8 @@ LIMIT = 600_000_000
 MIN_BYTES = 100_000_000
 
 
-# 模块 2：文件校验
+# 模块：文件校验（digest）
 # 功能：计算输入或程序摘要
-
-
 def digest(path):
     result = hashlib.sha256()
     with path.open('rb') as handle:
@@ -39,10 +36,8 @@ def digest(path):
     return result.hexdigest()
 
 
-# 模块 3：执行入口
+# 模块：执行入口（main）
 # 功能：读取参数并组织该工具的完整流程
-
-
 def main():
     folder = ROOT / 'models'
     folder.mkdir(exist_ok=True)
@@ -80,10 +75,8 @@ def main():
             manifest_path.write_text(json.dumps(record, indent=2) + '\n')
 
 
-        # 模块 4：固定下载身份
+        # 固定下载身份
         # 已有清单也要核对仓库、文件名和元数据，防止把其他权重当作指定模型续传。
-
-
         if (
             record.get('repo') != REPO
             or record.get('filename') != NAME
@@ -117,10 +110,9 @@ def main():
             raise RuntimeError('partial file exceeds expected size')
 
 
-        # 模块 5：断点续传
+        # 断点续传
         # offset 是磁盘上已有的字节数，只有尚缺数据时才发下载请求。
-
-
+        # 本地已有前 N 字节时，续传要从偏移 N 开始。若服务器忽略 Range、从头返回整份文件，就不能把它追加到已有前缀后面。
         if offset != record['expected_bytes']:
             headers = {'Range': f'bytes={offset}-'} if offset else {}
             with urllib.request.urlopen(
@@ -151,10 +143,9 @@ def main():
         sha = digest(partial)
 
 
-        # 模块 6：检查完整性
+        # 检查完整性
         # 字节数检出短文件；SHA-256 检出长度正确但内容不同的文件。
-
-
+        # 字节数相符仍可能内容不同，所以最后还要比 SHA-256。只有这两项都符合本次固定版本的元数据，才允许把临时下载当作目标权重。
         # 大小对只能说明长度一致。SHA-256 相同才能确认整个文件字节与固定版本预期相符。
         if size != record['expected_bytes'] or sha != record['expected_sha256']:
             raise RuntimeError('download failed byte count / official LFS SHA-256 verification')

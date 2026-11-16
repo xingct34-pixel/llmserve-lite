@@ -1,9 +1,7 @@
 # LLMServe-Lite 本地推理服务 | .github/workflows/cpu-platform.yml
-# 在 GitHub 的 Linux runner 上准备固定版本的 llama.cpp 和指定 GGUF，构建 CPU 镜像，
+# 功能：在 GitHub 的 Linux runner 上准备固定版本的 llama.cpp 和指定 GGUF，构建 CPU 镜像，
 # 再执行 platform_smoke.py 连通真实推理与监控，最后保留这一轮的小型 JSON 验证报告。
-#
-# 阅读地图（按源码顺序）
-#   1 准备权重与源码 → 2 跨组件验收
+# 目的：把真实推理、指标采集、仪表盘与告警连起来检查，发现单独测各组件时看不到的配置问题。
 
 
 name: Real CPU container and monitoring
@@ -35,10 +33,9 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
 
-      # 模块 1：准备权重与源码
+      # 准备权重与源码
       # 标签定位版本，提交号再次核对实际源码；模型下载脚本按清单校验内容。
-
-
+      # 分支标签方便人读，紧接着核对提交哈希才确定拿到了哪一版源码。GGUF 还要按模型自己的摘要验证，两种哈希检查的对象不同。
       - name: Prepare exactly pinned CPU source and the single authorized official model
         shell: bash
         run: |
@@ -50,10 +47,8 @@ jobs:
         run: docker build -f deploy/Dockerfile.cpu -t llmserve-cpu:test .
 
 
-      # 模块 2：跨组件验收
+      # 跨组件验收
       # 真实请求、监控抓取、面板配置和告警状态都通过之后，才得到可以留档的小报告。
-
-
       - name: Real inference, Prometheus scraping, Grafana provisioning and internal alert state
         run: python3 bench/platform_smoke.py --image llmserve-cpu:test --output results/platform-ci.json
       - name: Preserve only the small JSON verification report

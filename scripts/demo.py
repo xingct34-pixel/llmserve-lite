@@ -1,15 +1,11 @@
 # LLMServe-Lite 本地推理服务 | scripts/demo.py
-# 一次完整的本地客户端演示。用临时端口启动 CPU 服务，等 /readyz 成功，
+# 功能：一次完整的本地客户端演示。用临时端口启动 CPU 服务，等 /readyz 成功，
 # 再实际请求生成并读取响应。演示结束时关闭本脚本启动的进程，日志保存在 results。
-#
-# 阅读地图（按源码顺序）
-#   1 演示客户端 → 2 执行入口
+# 目的：用临时端口跑一次实际 CPU 请求，让演示结束后能回收自己启动的服务。
 
 
-# 模块 1：演示客户端
+# 模块：演示客户端
 # 功能：调用本地推理接口
-
-
 """One-command local CPU demonstration; starts and stops only its own server."""
 from pathlib import Path
 import http.client, json, signal, socket, subprocess, tempfile, time
@@ -17,10 +13,9 @@ import http.client, json, signal, socket, subprocess, tempfile, time
 ROOT = Path(__file__).resolve().parents[1]
 
 
-# 模块 2：执行入口
+# 模块：执行入口（main）
 # 功能：读取参数并组织该工具的完整流程
-
-
+# 绑定端口 0 是让系统先挑可用端口，再把选出的端口写到临时配置。演示请求跟着这份配置连接，原有 cpu.json 不需要为每次演示改端口。
 # 这个脚本扮演客户端。阅读时跟着 prompt 从 JSON 请求体到终端输出，实际生成仍在另一个服务进程。
 def main():
     config = json.loads((ROOT / 'configs/cpu.json').read_text())

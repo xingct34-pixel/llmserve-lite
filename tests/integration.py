@@ -1,6 +1,7 @@
 # LLMServe-Lite 本地推理服务 | tests/integration.py
-# 启动本地 Mock 服务，通过真实 HTTP 连接检查参数、流式响应、拒绝、断连及退出。
+# 功能：启动本地 Mock 服务，通过真实 HTTP 连接检查参数、流式响应、拒绝、断连及退出。
 # 先读 server 和 call 掌握怎样发请求，再选一个 test 对照 main.cpp 的对应路由。
+# 目的：从客户端可见的行为验证整个服务，包括参数校验、断开连接和过载时的反馈。
 #
 # 阅读顺序：准备服务和请求工具 → 检查指标与预算 → 验证 HTTP/SSE → 满载、恢复与退出。
 
@@ -28,10 +29,8 @@ ROOT = Path(__file__).resolve().parents[1]
 @contextlib.contextmanager
 
 
-# 模块 1：隔离运行
+# 模块：隔离运行（server）
 # 每组测试启动自己的服务和配置，因此可以把队列、缓冲、超时设得很小，可靠触发边界。
-
-
 def server(**changes):
     cfg = json.loads((ROOT / 'configs/server.json').read_text())
     with socket.socket() as sock:
@@ -72,10 +71,8 @@ def server(**changes):
                     raise AssertionError(f'server exit {process.returncode}: ' + log.read())
 
 
-# 模块 2：发送一条请求
+# 模块：发送一条请求（call）
 # 测试可以选择传 JSON 或原始字节，观察 HTTP 层实际返回的状态和正文。
-
-
 def call(port, data=None, path='/v1/completions', raw=None):
     connection = http.client.HTTPConnection('127.0.0.1', port, timeout=8)
     try:
@@ -92,6 +89,7 @@ def call(port, data=None, path='/v1/completions', raw=None):
         connection.close()
 
 
+# 服务处理请求与测试线程并行。轮询到期望的指标再往下走，避免用固定睡眠猜 worker 到了哪一步。
 def wait_metric(port, key, value):
     for _ in range(200):
         metrics = json.loads(call(port, path='/metrics')[1])
@@ -104,10 +102,8 @@ def wait_metric(port, key, value):
 class HTTPTests(unittest.TestCase):
 
 
-    # 模块 3：标准指标
+    # 模块：标准指标（test_prometheus_and_stage_metrics）
     # 功能：成功与失败分开计数，验证累计桶和文本格式
-
-
     def test_prometheus_and_stage_metrics(self):
         with server(mock_delay_ms=1) as (port, _):
             self.assertEqual(call(port, {'prompt': 'hello', 'max_tokens': 2})[0], 200)
@@ -128,10 +124,9 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual(metrics['output_tokens'], 2)
 
 
-    # 模块 4：预算背压
+    # 模块：预算背压（test_queued_output_budget）
     # 功能：活动任务不计入等待预算；超过预算拒绝，消费后容量恢复
-
-
+    # 为了专门测输出预算，队列里还要有空位。这样一个请求被拒时，才能判断触发条件是已预留的 token 加上新请求超限，而非单纯队列已满。
     def test_queued_output_budget(self):
         with server(mock_delay_ms=25, queued_output_budget=12) as (port, _):
             with concurrent.futures.ThreadPoolExecutor(2) as pool:
@@ -146,10 +141,8 @@ class HTTPTests(unittest.TestCase):
             wait_metric(port, 'queued_output_tokens', 0)
 
 
-    # 模块 5：配置拒绝
+    # 模块：配置拒绝（test_new_config_validation）
     # 功能：新开关同样执行类型与范围检查，错误配置不能启动服务
-
-
     def test_new_config_validation(self):
         for changes in [
             {'prefix_cache_tokens': 1},
@@ -167,10 +160,8 @@ class HTTPTests(unittest.TestCase):
                 self.assertIn(b'startup_error', result.stderr)
 
 
-    # 模块 6：协议验收
+    # 模块：协议验收（test_json_stream_and_validation）
     # 普通 JSON 和 SSE 有各自的成功结束方式；逐段核对响应可发现“返回 200 却少了尾段”的问题。
-
-
     def test_json_stream_and_validation(self):
         with server(mock_delay_ms=50) as (port, _):
             status, body = call(port, {'prompt': '你好', 'max_tokens': 8})
@@ -223,10 +214,8 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual(call(port, {'prompt': 'recovery', 'max_tokens': 1})[0], 200)
 
 
-    # 模块 7：满队列与健康探针
+    # 模块：满队列与健康探针（test_overload_health_and_fifo）
     # 让 worker 有活、队列有人等时再提交，才真正覆盖拒绝路径。此时还能否查健康属于另一项要求。
-
-
     def test_overload_health_and_fifo(self):
         with server(mock_delay_ms=30) as (port, _):
             with concurrent.futures.ThreadPoolExecutor(5) as pool:
@@ -259,10 +248,8 @@ class HTTPTests(unittest.TestCase):
                 self.assertEqual(active.result()[0], 200)
 
 
-    # 模块 8：验证退出与恢复
+    # 模块：验证退出与恢复（test_disconnect_and_shutdown）
     # 让连接先断开、服务再退出，检查其余任务能否结束。
-
-
     # 客户端提前关闭后，服务应能收回该任务并继续响应；有任务时关闭进程则要唤醒等待者。
     def test_disconnect_and_shutdown(self):
         with server(mock_delay_ms=15) as (port, process):

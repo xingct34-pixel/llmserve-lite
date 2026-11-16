@@ -1,9 +1,7 @@
 # LLMServe-Lite 本地推理服务 | tests/download_tests.py
-# 用小段内存数据模拟官方元数据和下载响应，再调用真正的下载脚本逻辑。
+# 功能：用小段内存数据模拟官方元数据和下载响应，再调用真正的下载脚本逻辑。
 # 刻意返回摘要不匹配、续传失败或错误大小，检查残缺内容能否被挡在正式模型文件之外。
-#
-# 阅读地图（按源码顺序）
-#   1 模拟网络响应 → 2 假网络 → 3 检查续传协议
+# 目的：在离线环境稳定重现断点、错误响应与损坏数据，检查下载器会不会误收文件。
 
 
 """Offline download safety tests. Payload is fake bytes in temporary directories, never a model."""
@@ -26,10 +24,8 @@ REV='a'*40
 SHA=hashlib.sha256(PAYLOAD).hexdigest()
 
 
-# 模块 1：模拟网络响应
+# 模块：模拟网络响应（Response）
 # 用内存里的字节和响应头代替连接，下载函数仍按平时的方式读取。
-
-
 class Response(io.BytesIO):
     def __init__(self,data,status=200,headers=None):
         super().__init__(data)
@@ -48,10 +44,8 @@ class DownloadTests(unittest.TestCase):
             patcher.start();self.addCleanup(patcher.stop)
 
 
-    # 模块 2：假网络
+    # 模块：假网络（network）
     # 让脚本读到可控的小段字节和 HTTP 元数据，每一种失败都能离线重现，不必下载整份 GGUF。
-
-
     def network(self,url,timeout):
         if isinstance(url,str):
             self.assertEqual(url,f'https://huggingface.co/api/models/{fetch.REPO}/revision/main?blobs=true')
@@ -102,10 +96,9 @@ class DownloadTests(unittest.TestCase):
         self.assertTrue((self.folder/(fetch.NAME+'.part')).exists())
 
 
-    # 模块 3：检查续传协议
+    # 模块：检查续传协议（test_refuse_server_ignoring_resume）
     # 服务器如果返回完整文件，直接接在残片后面会把文件写长。
-
-
+    # 假服务器在收到续传请求时故意返回从头开始的响应。这个用例要证明下载器能认出响应与偏移不符，避免把重复前缀拼到模型文件里。
     # 客户端要求从中间接，服务器却回完整文件；如果照常追加，最终文件会把开头重复一遍。
     def test_refuse_server_ignoring_resume(self):
         (self.folder/(fetch.NAME+'.part')).write_bytes(PAYLOAD[:5])
@@ -123,6 +116,7 @@ class DownloadTests(unittest.TestCase):
         self.assertFalse((self.folder/fetch.NAME).exists())
 
     # 已有正式文件校验失败时，测试还检查原有内容是否保留，避免为修复下载而覆盖用户文件。
+    # 故意预放一个坏文件，检查脚本既报错又保留原件；这和校验失败后如何处理临时下载是两条路径。
     def test_existing_corrupt_file_is_preserved(self):
         final=self.folder/fetch.NAME
         final.write_bytes(b'user-existing-bytes')

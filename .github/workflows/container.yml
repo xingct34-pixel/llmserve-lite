@@ -1,9 +1,7 @@
 # LLMServe-Lite 本地推理服务 | .github/workflows/container.yml
-# 构建 Mock 镜像后在本地容器中启动它，从外部请求健康接口和生成接口。
+# 功能：构建 Mock 镜像后在本地容器中启动它，从外部请求健康接口和生成接口。
 # 除了验证二进制，还能发现运行镜像缺少配置或启动命令错误等打包问题。
-#
-# 阅读地图（按源码顺序）
-#   1 构建镜像 → 2 容器验收
+# 目的：验证打包后的 Mock 程序能从容器入口启动并响应真实 HTTP 请求。
 
 
 name: Mock container smoke
@@ -18,18 +16,15 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
 
-      # 模块 1：构建镜像
+      # 构建镜像
       # 这条流水线测试 mock 打包路径，检查对象是容器的默认配置、入口程序和实际 HTTP 返回值。
-
-
       - name: Build isolated mock container
         run: docker build -f deploy/Dockerfile -t llmserve-mock:test .
 
 
-      # 模块 2：容器验收
+      # 容器验收
       # 先等 readyz 成功，再核对指标和生成结果。能启动容器与能生成指定数量的片段是两项条件。
-
-
+      # 镜像能成功构建只说明产物打包成功。这一步要启动它并从 HTTP 发请求，才能发现默认配置路径写错或运行时缺库之类的问题。
       - name: Verify readiness and inference on Linux host network
         shell: bash
         run: |

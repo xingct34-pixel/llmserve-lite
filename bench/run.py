@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 # LLMServe-Lite 本地推理服务 | bench/run.py
-# 压测客户端通过本地 HTTP 发送流式请求，按客户端时钟记录第一段文字和整次完成时间。
+# 功能：压测客户端通过本地 HTTP 发送流式请求，按客户端时钟记录第一段文字和整次完成时间。
 # 它还读取服务进程的内存、退出码和服务端指标。结果保留引擎身份，便于区分模拟与真实生成。
+# 目的：从发请求的一侧测用户实际等了多久，并区分正常完成、拒绝和其他失败。
 #
 # 阅读顺序：准备摘要与计时工具 → 逐请求测量 → 同步采样资源 → 汇总结果。
 
 
-# 模块 1：服务基准
+# 模块：服务基准
 # 功能：测量SSE请求、并发和长时间稳定性
-
-
 """Reproducible low-resource benchmark and soak. No external Python packages."""
 import argparse
 import concurrent.futures
@@ -29,10 +28,8 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 
 
-# 模块 2：大文件校验
+# 模块：大文件校验（sha256_file）
 # 功能：用固定缓冲避免整文件载入
-
-
 def sha256_file(path):
     """Hash large weights with a fixed 1 MiB read buffer."""
     # 大权重按1 MiB分块校验；降低的是基准工具读文件的内存，不是C++推理服务的内存。
@@ -43,23 +40,20 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
-# 模块 3：分位统计
+# 模块：分位统计（percentile）
 # 功能：从排序样本中取得指定位置
-
-
 # 这里按排序后的下标选择实际观测值；和 YOLO Benchmark 在相邻样本间做线性插值的定义不同。
 def percentile(values, p):
     if not values:
         return None
     a = sorted(values)
     # 本脚本取排序后最接近p*(n-1)位置的样本，不做YOLO项目中使用的线性插值。
+    # 例：排序后为 [10,20,40,80] ms，P50 对应下标 1.5，这里的取整选下标 2，返回 40 ms。
     return a[min(len(a) - 1, max(0, int((len(a) - 1) * p + 0.5)))]
 
 
-# 模块 4：指标读取
+# 模块：指标读取（get）
 # 功能：请求本地服务的JSON接口
-
-
 def get(port, route):
     conn = http.client.HTTPConnection('127.0.0.1', port, timeout=10)
     try:
@@ -72,10 +66,9 @@ def get(port, route):
         conn.close()
 
 
-# 模块 5：请求测量
+# 模块：请求测量（request）
 # 功能：读取SSE并记录完成状态和首次输出时间
-
-
+# 假设发请求后 80 ms 读到第一段文字，200 ms 读完整个响应，客户端的首段延迟就是 80 ms。服务端从 worker 开始计到首段入队的数值不包含这条路径的全部等待。
 # 客户端从发送请求开始计时，直到读到第一段有效文本或生成完成。这个时间自然包含网络与排队。
 def request(port, prompt, output):
     row = {'status': None, 'success': False, 'output_tokens': 0}
@@ -126,10 +119,9 @@ def request(port, prompt, output):
     return row
 
 
-# 模块 6：资源采样
+# 模块：资源采样（snapshot）
 # 功能：读取进程与系统内存指标
-
-
+# 采样的是服务子进程。当前驻留内存和历史峰值用途不同：一次瞬时分配可能在下次采样前已经释放，解读报告先看字段指的是哪一个。
 # pid 对应本次启动的服务进程；VmRSS 是当前驻留量，VmHWM 是到采样时为止的驻留高水位。
 def snapshot(pid):
     values = {}
@@ -143,10 +135,8 @@ def snapshot(pid):
     return values
 
 
-# 模块 7：执行入口
+# 模块：执行入口（main）
 # 功能：读取参数并组织该工具的完整流程
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--binary', default='build/mock/llmserve')
@@ -193,10 +183,8 @@ def main():
         process = subprocess.Popen([str(binary), str(cfg_path)], cwd=ROOT, stdout=log, stderr=log)
 
 
-        # 模块 8：独立采样
+        # 模块：独立采样（monitor）
         # 把读资源的循环放在另一线程，避免发完全部请求才发现错过了中间的内存峰值。
-
-
         def monitor():
             while not stop.wait(1):
                 try:

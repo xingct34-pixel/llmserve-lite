@@ -1,7 +1,8 @@
 // LLMServe-Lite 本地推理服务 | src/main.cpp
-// 本地推理服务的 HTTP 入口。启动时读配置、创建一个引擎和调度器，之后才接收请求。
+// 功能：本地推理服务的 HTTP 入口。启动时读配置、创建一个引擎和调度器，之后才接收请求。
 // 同一句提示词有两种回程：普通请求收齐文字后返回 JSON；流式请求通过 SSE 分段发送。
 // 沿一个 POST 往下读，找到提交 Job、等第一个事件、写给客户端这三个交接点。
+// 目的：把客户端请求转换成推理任务，并根据错误发生在发送响应前还是发送过程中选用合适的反馈方式。
 //
 // 阅读顺序：启动服务 → 注册健康和指标接口 → 接收请求并等首个事件 → 普通 JSON 或 SSE → 退出。
 
@@ -12,10 +13,8 @@
 #include <iostream>
 
 
-// 模块 1：HTTP 辅助（信号标志、JSON 响应、错误码映射）
+// 模块：HTTP 辅助（信号标志、JSON 响应、错误码映射）
 // 作用：提供处理 Ctrl+C 的停止标志、统一的 JSON 回复函数，以及把内部错误码翻译成 HTTP 状态码。
-
-
 namespace {
 // 信号处理函数里只能安全地做很少的事，所以标志必须是"无锁"的原子变量，编译期检查这一点
 static_assert(std::atomic<bool>::is_always_lock_free, "signal flag must be lock-free");
@@ -48,10 +47,8 @@ int error_status(const serve::Json& event) {
 }
 
 
-// 模块 2：服务入口（main）
+// 模块：服务入口（main）
 // 作用：加载配置和引擎，注册所有路由，监听本地端口，并在收到停止信号时有序退出。
-
-
 int main(int argc, char** argv) {
     try {
         // 必须恰好传入一个配置文件路径，否则打印用法并返回 2
@@ -61,10 +58,8 @@ int main(int argc, char** argv) {
         }
 
 
-        // 模块 3：服务初始化
+        // 服务初始化
         // 作用：加载引擎，设置 HTTP 线程池和资源限制。
-
-
         const auto config = serve::Config::load(argv[1]);
         // 先加载唯一引擎，再启动单worker；加载失败时不会监听端口或宣称服务就绪。
         // 通俗讲：模型没加载好之前，服务不会对外说"我准备好了"。
@@ -74,10 +69,8 @@ int main(int argc, char** argv) {
         server.new_task_queue = [&] {
 
 
-            // 模块 4：HTTP 接入层
+            // HTTP 接入层
             // 线程池处理连接与响应，Scheduler 的 worker 才执行模型。增大 HTTP 线程数不会自动多加载几个模型。
-
-
             return new httplib::ThreadPool(config.http_threads, config.http_threads);
         };
         // HTTP请求体上限16384字节，下面prompt另限12000字节；字节数不等于模型token数。
@@ -93,10 +86,8 @@ int main(int argc, char** argv) {
         std::atomic<int> handling{0};
 
 
-        // 模块 5：健康检查
+        // 健康检查
         // 作用：提供存活探针（/healthz）和就绪探针（/readyz），供负载均衡或容器编排系统探测。
-
-
         // 存活：只要进程能响应就返回 ok
         server.Get("/healthz", [&](const auto&, auto& res) {
             reply(res, 200, {{"status", "ok"}});
@@ -107,10 +98,8 @@ int main(int argc, char** argv) {
         });
 
 
-        // 模块 6：指标接口
+        // 指标接口
         // 作用：统计 HTTP 层的状态码，并与调度器的统计合并后通过 /metrics 暴露。
-
-
         // started：开始处理的请求数；logged：完成并记录的响应数；后面是各类状态码计数
         std::atomic<uint64_t> http_started{0}, http_logged{0}, http_429{0}, http_4xx{0},
             http_5xx{0};
@@ -121,10 +110,8 @@ int main(int argc, char** argv) {
             // 只统计推理接口，健康检查和指标接口不计入
 
 
-            // 模块 7：HTTP 状态计数
+            // HTTP 状态计数
             // 只统计这条生成路由的响应；频繁轮询健康接口不会提高生成请求成功数。
-
-
             if (req.method != "POST" || req.path != "/v1/completions")
                 return;
             ++http_logged;
@@ -147,11 +134,9 @@ int main(int argc, char** argv) {
         });
 
 
-        // 模块 8：Prometheus 接口
+        // Prometheus 接口
         // 作用：保留原 JSON 指标，另在独立地址提供 Prometheus 标准文本格式，方便监控系统抓取。
         // 不使用 request_id 或 prompt 作为标签，避免每个请求都产生一条新的时间序列，把监控系统撑爆。
-
-
         server.Get("/metrics/prometheus", [&](const auto&, auto& res) {
             auto snapshot = scheduler.metrics();
             snapshot["http_requests_started"] = http_started.load();
@@ -164,10 +149,8 @@ int main(int argc, char** argv) {
         });
 
 
-        // 模块 9：推理接口（POST /v1/completions）
+        // 推理接口（POST /v1/completions）
         // 作用：校验请求、占用接入名额、提交排队，并根据 stream 选择一次性 JSON 或 SSE 流式输出。
-
-
         server.Post("/v1/completions", [&](const httplib::Request& req, httplib::Response& res) {
             ++http_started;
             // owns_slot 记录"当前这个处理函数是否占着接入名额"，出异常时据此决定要不要归还，避免漏还或重复还
@@ -176,10 +159,8 @@ int main(int argc, char** argv) {
             try {
 
 
-                // 模块 10：请求校验
+                // 请求校验
                 // 作用：检查 JSON 字段类型、未知字段、提示词长度和输出上限。
-
-
                 // JSON 数字、字符串、布尔值有不同类型；把数量写成字符串时，服务应在接入层给出参数错误。
                 auto j = serve::Json::parse(req.body);
                 // 必须是对象，prompt 必须是字符串，stream 必须是布尔，max_tokens 必须是能放进 int 的整数
@@ -207,13 +188,12 @@ int main(int argc, char** argv) {
                 }
 
 
-                // 模块 11：有界接入
+                // 有界接入
                 // 作用：先占 HTTP 名额，再尝试提交等待队列。
                 // 两层拒绝：此处接入已满返回 admission_full；Scheduler 拒绝提交时该路由返回 queue_full。
                 // 接入层拒绝没有进入调度器，因此 Scheduler.rejected 不包含所有 HTTP 429。
                 // 通俗讲：餐厅门口先限制总人数（第一层），进门后座位也满了再拒绝（第二层）。
-
-
+                // 若 HTTP 名额已满，请求根本不会进入 Scheduler。看拒绝原因时，admission_full 从这一层来；成功占到名额后仍可能因排队容量或预算收到 queue_full。
                 // fetch_add 先加 1 并返回旧值；旧值已达上限说明满了，立刻撤销并返回 429，让客户端 1 秒后重试
                 // fetch_add 在同一次原子操作里取旧值并加一。并发到达的线程因此不会同时拿到同一个旧计数。
                 if (handling.fetch_add(1) >= config.queue_capacity + 1) {
@@ -236,10 +216,8 @@ int main(int argc, char** argv) {
                 res.set_header("X-Request-ID", job->id);
 
 
-                // 模块 12：等待执行
+                // 等待执行
                 // 作用：先等任务开始、再读首个事件；此时响应头还没发出，早期失败仍能返回真实的 400/504 等状态码。
-
-
                 // await_start 返回 false 表示在开始执行前就被取消了（排队超时或服务关闭）
                 if (!job->await_start()) {
                     std::string reason;
@@ -257,10 +235,9 @@ int main(int argc, char** argv) {
                 // 取第一个事件：若没有或是 error，说明引擎一开始就失败了，直接用对应状态码返回
 
 
-                // 模块 13：等第一条事件
+                // 等第一条事件
                 // 一旦开始发送 SSE 响应头，就很难再换 HTTP 状态码；先看首个事件，可将早期失败直接作为请求错误返回。
-
-
+                // 如果第一个事件就是参数错误，此时还可以返回对应的 HTTP 错误码。如果已经把 SSE 响应头发出，同类错误只能在流里作为事件告知客户端。
                 auto initial = job->next();
                 if (!initial || (*initial)["type"] == "error") {
                     handling.fetch_sub(1);
@@ -272,11 +249,9 @@ int main(int argc, char** argv) {
                 }
 
 
-                // 模块 14：JSON 响应（非流式）
+                // JSON 响应（非流式）
                 // 作用：消费事件缓冲，把所有文本片段拼起来一次性返回。
                 // 非流式也消费同一个有界事件缓冲，只是攒齐文本后一次返回 JSON。
-
-
                 if (!request.stream) {
                     std::string output;
                     auto event = initial;
@@ -300,21 +275,17 @@ int main(int argc, char** argv) {
                 }
 
 
-                // 模块 15：SSE 响应（流式）
+                // SSE 响应（流式）
                 // 作用：保留已取出的首事件，之后逐段写入客户端，并处理中途断连。
                 // SSE 是 HTTP 响应中的事件流，不是 WebSocket。每帧用 data: JSON 加空行分隔。
                 // pending 保留已取出的首事件；shared_ptr 按值捕获，保证后续发送回调中 Job 仍有效。
                 // 通俗讲：像水管一样，生成一点就推送一点，客户端能立刻看到文字一个个冒出来。
-
-
                 // 告诉 Nginx 之类的反向代理不要缓冲，否则流式效果会被卡住
                 res.set_header("X-Accel-Buffering", "no");
 
 
-                // 模块 16：保留首个事件
+                // 保留首个事件
                 // 前面为检查错误已经取出过一次事件。流回调要先用 pending 送它，跳过这一步会丢第一个片段。
-
-
                 auto pending = std::make_shared<std::optional<serve::Json>>(std::move(initial));
                 res.set_chunked_content_provider(
                     "text/event-stream; charset=utf-8",
@@ -392,10 +363,8 @@ int main(int argc, char** argv) {
         });
 
 
-        // 模块 17：监听与退出
+        // 监听与退出
         // 作用：统一处理错误响应，绑定端口，并监视停止信号，实现有序关闭。
-
-
         // 兜底：路由处理中漏掉的异常，统一返回 500
         server.set_exception_handler([](const auto&, auto& res, std::exception_ptr) {
             reply(res, 500, {{"error", "internal_error"}});

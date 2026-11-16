@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 # LLMServe-Lite 本地推理服务 | bench/traffic.py
-# 按预设时间间隔交替发送长短请求。即使服务很忙，计划到达的请求仍纳入负载统计。
+# 功能：按预设时间间隔交替发送长短请求。即使服务很忙，计划到达的请求仍纳入负载统计。
 # summarize 同时看首段输出时限与总耗时时限，区分已完成请求和按时完成的请求。
-#
-# 阅读地图（按源码顺序）
-#   1 结果统计 → 2 计划负载 → 3 记录计划与实际开始的差
-#   4 客户端已满 → 5 运行入口
+# 目的：把没能发出、被拒绝以及成功但迟到的请求也纳入统计，评估规定时限内实际服务了多少请求。
 
 
 """Bounded scheduled-arrival CPU workload, including client scheduling delay and SLO goodput."""
@@ -22,10 +19,9 @@ import time
 from run import ROOT, get, percentile, request, sha256_file, snapshot
 
 
-# 模块 1：结果统计
+# 模块：结果统计（summarize）
 # 功能：拒绝和失败保留在分母内；达标请求须同时满足成功、首输出和总延迟条件
-
-
+# 例：2 秒内安排 5 次请求，2 次成功，只有 1 次同时满足首段和总耗时时限。成功吞吐是 2/2=1 请求/秒，达标吞吐是 1/2=0.5，达标率是 1/5。
 # 假设计划发 10 次，8 次成功、其中 6 次两项延迟都达标，达标率是 6/10。只除以成功数会高估服务质量。
 def summarize(rows, elapsed, ttft_slo_ms, latency_slo_ms):
     success = [r for r in rows if r.get('success')]
@@ -56,10 +52,8 @@ def summarize(rows, elapsed, ttft_slo_ms, latency_slo_ms):
     }
 
 
-# 模块 2：计划负载
+# 模块：计划负载（run_workload）
 # 功能：固定间隔发送，交替长短输入；忙时丢弃客户端样本并明确计数
-
-
 def run_workload(port, samples, interval, clients, output_tokens):
     origin = time.monotonic()
     rows, pending = [], []
@@ -69,10 +63,8 @@ def run_workload(port, samples, interval, clients, output_tokens):
     ]
 
 
-    # 模块 3：记录计划与实际开始的差
+    # 模块：记录计划与实际开始的差（send）
     # due 是原定发送时刻；客户端线程晚开始也会占用用户等待的时间。
-
-
     # 若本来 100 ms 应该发，到 130 ms 才开始执行，则计划视角比实际请求耗时多计 30 ms 等待。
     def send(index, due):
         lag_ms = max(0, (time.monotonic() - due) * 1000)
@@ -97,10 +89,9 @@ def run_workload(port, samples, interval, clients, output_tokens):
             # 不在ThreadPool里悄悄积累无限等待任务；记录未发送请求，避免隐藏过载。
 
 
-            # 模块 4：客户端已满
+            # 客户端已满
             # 这一项按计划仍算到达，只是发不出去。它和服务端明确回复 HTTP 429 是两个不同的现象。
-
-
+            # 客户端已没有空闲名额时，请求还没发到服务端。把它单列为 client_capacity，才能与服务主动返回的 HTTP 429 分清。
             if sum(not f.done() for f in pending) >= clients:
                 rows.append(
                     {
@@ -117,10 +108,8 @@ def run_workload(port, samples, interval, clients, output_tokens):
     return sorted(rows, key=lambda r: r['index']), time.monotonic() - origin
 
 
-# 模块 5：运行入口
+# 模块：运行入口（main）
 # 功能：仅启动和停止自己创建的子进程，原始请求及资源信息留在本地
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', default='build/mock/llmserve')

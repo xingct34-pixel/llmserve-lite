@@ -16,17 +16,13 @@
 namespace serve {
 
 
-// 模块 1：样本入桶
+// 模块：样本入桶（Histogram::observe）
 // 功能：只接受有限非负秒数，内存与请求总数无关
-
-
 void Histogram::observe(double seconds) {
 
 
-    // 模块 2：合法样本
+    // 合法样本
     // NaN 没有可靠的大小关系，负时长没有业务意义，先过滤才能稳定地定位桶。
-
-
     if (!std::isfinite(seconds) || seconds < 0)
         return;
     ++counts[size_t(std::lower_bound(bounds.begin(), bounds.end(), seconds) - bounds.begin())];
@@ -35,19 +31,16 @@ void Histogram::observe(double seconds) {
 }
 
 
-// 模块 3：快照生成
+// 模块：快照生成（Histogram::json）
 // 功能：所有桶使用累计计数，最后一个表示正无穷
-
-
 nlohmann::json Histogram::json() const {
     nlohmann::json buckets = nlohmann::json::array();
     uint64_t cumulative = 0;
 
 
-    // 模块 4：累计分布
+    // 累计分布
     // 如果前两个桶各有 2 次和 3 次，第二个累计桶就要输出 5，表示不超过第二个上限的一共有 5 次。
-
-
+    // 例如只观察到一次 12 ms，它在内部只加一个区间；导出时却应同时出现在 ≤20 ms、≤100 ms 等累计桶里。因此不要再把导出的各桶相加来算请求数。
     for (size_t i = 0; i < counts.size(); ++i) {
         cumulative += counts[i];
         buckets.push_back(cumulative);
@@ -56,10 +49,8 @@ nlohmann::json Histogram::json() const {
 }
 
 
-// 模块 5：文本格式
+// 模块：文本格式（prometheus）
 // 功能：固定指标与单位，不把用户文本或请求ID放进标签
-
-
 std::string prometheus(const nlohmann::json& snapshot) {
     std::ostringstream out;
     out.imbue(std::locale::classic());
@@ -98,10 +89,8 @@ std::string prometheus(const nlohmann::json& snapshot) {
     }
 
 
-    // 模块 6：输出耗时分布
+    // 输出耗时分布
     // 累计桶告诉监控系统“小于等于这个上限的有多少次”，最后一个桶覆盖全部样本。
-
-
     for (auto it = snapshot.at("histograms").begin(); it != snapshot.at("histograms").end(); ++it) {
         const auto name = "llmserve_success_" + it.key() + "_seconds";
         const auto& h = it.value();

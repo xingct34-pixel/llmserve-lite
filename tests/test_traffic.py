@@ -1,9 +1,7 @@
 # LLMServe-Lite 本地推理服务 | tests/test_traffic.py
-# 给 traffic.py 的汇总函数传入事先知道结果的请求样本。
+# 功能：给 traffic.py 的汇总函数传入事先知道结果的请求样本。
 # 有人按时完成、有人迟到、有人收到 429；核对分母，才能正确解释压测报告的达标率。
-#
-# 阅读地图（按源码顺序）
-#   1 达标率验收 → 2 构造分母
+# 目的：固定成功、迟到、拒绝与客户端丢弃的数量，核对报告里的不同分母。
 
 
 import sys
@@ -14,17 +12,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bench'))
 from traffic import summarize
 
 
-# 模块 1：达标率验收
+# 模块：达标率验收（TrafficTests）
 # 功能：成功但超时、429和客户端未发出样本都不能计为达标
-
-
 class TrafficTests(unittest.TestCase):
 
 
-    # 模块 2：构造分母
+    # 模块：构造分母（test_denominators）
     # 把成功、超时和未发出混在同一组，逐一检查哪些算成功、哪些算达标以及分母保留了多少项。
-
-
+    # 5 行代表 5 次计划到达，其中 429 与客户端自己丢弃的那次都占分母。成功有两次，按时的只有一次，所以即使成功率为 2/5，达标率仍只有 1/5。
     def test_denominators(self):
         rows = [
             {'success': True, 'status': 200, 'offered_ttft_ms': 10, 'offered_latency_ms': 100},

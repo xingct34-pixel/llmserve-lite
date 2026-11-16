@@ -1,7 +1,8 @@
 // LLMServe-Lite 本地推理服务 | include/serve.hpp
-// LLMServe-Lite 把本地语言模型包装成 HTTP 服务。这个头文件定义接入、调度、生成之间的接口。
+// 功能：LLMServe-Lite 把本地语言模型包装成 HTTP 服务。这个头文件定义接入、调度、生成之间的接口。
 // 可以跟着一个 Job 读：main.cpp 收到请求，core.cpp 把它交给 worker，
 // engine.cpp 生成文字，HTTP 线程再从同一个 Job 取出文字，返回给客户端。
+// 目的：约定一次请求从 HTTP、等待队列、引擎到响应端传递哪些数据，以及谁持有任务状态。
 //
 // 阅读顺序：配置与请求格式 → 引擎接口 → 单请求的事件与终态（Job） → 多请求的排队和统计（Scheduler）。
 
@@ -60,11 +61,9 @@ using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 
 
-// 模块 1：字段校验（is_int）
+// 模块：字段校验（is_int）
 // 作用：判断一个 JSON 值是不是整数，并且能否安全放进 32 位 int，防止溢出后变成错误的值。
 // 通俗讲：用户传来的数字可能大得离谱（比如 max_tokens 填一个 100 位的数），先检查装不装得下。
-
-
 inline bool is_int(const Json& j) {
     // 不是整数（比如小数、字符串）直接不合格
     if (!j.is_number_integer())
@@ -79,7 +78,7 @@ inline bool is_int(const Json& j) {
 }
 
 
-// 模块 2：服务配置（Config）
+// 模块：服务配置（Config）
 // 作用：集中声明计算、队列、HTTP 和超时相关的所有参数，并给出默认值。
 // 资源参数分三层：
 //   threads       —— 模型做计算用的 CPU 线程数
@@ -88,8 +87,6 @@ inline bool is_int(const Json& j) {
 // queue_capacity 限制"排队等待推理"的请求数；event_capacity 限制每个请求"还没被客户端读走"的文本事件数。
 // context_tokens 要装下"套完模板的提示词 + 预留的生成长度"；max_output_tokens 只限制新生成的部分。
 // 通俗讲：像一家只有 1 个厨师的餐厅，threads 是厨师的手数，http_threads 是服务员数量，queue_capacity 是等位座位数。
-
-
 struct Config {
     // engine：引擎类型（mock 为模拟引擎，方便测试）；host：监听地址，默认只允许本机访问；model_path：模型文件路径
     std::string engine = "mock", host = "127.0.0.1", model_path;
@@ -103,18 +100,14 @@ struct Config {
     int backpressure_timeout_ms = 2000, mock_delay_ms = 20;
 
 
-    // 模块 3：可选前缀缓存
+    // 可选前缀缓存
     // 作用：0 表示关闭；开启后，只复用本进程上一条成功请求中相同的 token 前缀。
     // 通俗讲：如果两个请求开头一模一样（比如相同的系统提示词），开头那段就不用重新算了。
-
-
     int prefix_cache_tokens = 0;
 
 
-    // 模块 4：排队预算
+    // 排队预算
     // 作用：限制所有"等待中"请求的 max_tokens 之和，0 表示关闭。它只是排队负载的上限，不代表 KV 缓存占多少内存。
-
-
     int queued_output_budget = 0;
 
 
@@ -123,10 +116,9 @@ struct Config {
 };
 
 
-// 模块 5：请求数据（Request）
+// 模块：请求数据（Request）
 // 作用：保存一次请求的提示词、输出长度上限，以及是否流式返回。
-
-
+// Request 存这次要生成什么，Job 再为它加上提交时间、取消状态和输出队列。HTTP 解析完字段就能构造 Request；跨线程跟踪这次生成时才需要 Job。
 // 每个 HTTP 请求各有 prompt 和 max_tokens；进程启动配置由许多请求共享。实际把 JSON 填进 Request 的代码在 main.cpp。
 struct Request {
     std::string prompt;        // 用户提示词
@@ -135,10 +127,8 @@ struct Request {
 };
 
 
-// 模块 6：生成统计（Generation）
+// 模块：生成统计（Generation）
 // 作用：保存 token 数量、结束原因和引擎各阶段耗时。
-
-
 struct Generation {
     int prompt_tokens = 0, output_tokens = 0;
     // 结束原因：length 表示达到长度上限，另外也可能是自然结束(stop)等
@@ -147,21 +137,18 @@ struct Generation {
     double prefill_ms = 0, decode_ms = 0;
 
 
-    // 模块 7：真实计算口径
+    // 真实计算口径
     // 作用：把"准备耗时""真正的 prefill 计算耗时""被缓存复用而没重算的输入 token 数"分开记录，
     //       这样开了前缀缓存后，统计才不会虚高或虚低。
-
-
     double prompt_prepare_ms = 0, prefill_compute_ms = 0;
     int cached_prompt_tokens = 0;
 };
 
 
-// 模块 8：引擎接口（Engine）
+// 模块：引擎接口（Engine）
 // 作用：定义统一的生成接口，Mock 引擎和 llama.cpp 引擎都按此实现，上层调度器不用关心具体是哪个。
 // 通俗讲：像插座标准，不管插的是哪种电器，墙上的插座都一样。
-
-
+// 生成过程中 emit 交出一段完整文字，stop 查询是否应结束。把这两个动作作为回调传入，引擎就能配合取消和慢客户端，而无需知道 HTTP 连接怎么写。
 // Scheduler 只依赖 Engine。它把“把字送到 Job”和“是否该停”作为调用参数交给 generate。
 class Engine {
 public:
@@ -179,10 +166,8 @@ public:
 };
 
 
-// 模块 9：辅助接口
+// 模块：辅助接口（make_engine）
 // 作用：声明引擎工厂、UTF-8 处理、日志和计时函数，具体实现在其他文件。
-
-
 // 根据配置创建对应的引擎（mock 或 llama.cpp）
 std::unique_ptr<Engine> make_engine(const Config&);
 // 取出缓冲区里"完整的 UTF-8 字符"。
@@ -195,13 +180,11 @@ void log(const Json&);
 double millis(Clock::time_point a, Clock::time_point b);
 
 
-// 模块 10：任务状态（Job）
+// 模块：任务状态（Job）
 // 作用：管理单个请求的整个生命周期：输出缓冲、取消、结束状态。
 // 一个请求对应一个 Job。它用 shared_ptr 管理，这样 HTTP 处理线程、推理 worker、SSE 回调
 // 谁最后用完谁负责释放，不会出现某个线程还在用、对象却被销毁的情况。
 // cancelled 是原子变量，用来跨线程发"停止"信号；取消原因、运行状态和事件队列仍由 mutex 保护。
-
-
 // 每次请求一个 Job。共享的是同一份状态，因此 HTTP 线程取事件的同时，worker 能在另一端继续放入事件。
 struct Job {
     const std::string id;                              // 请求唯一编号
@@ -230,13 +213,11 @@ struct Job {
 };
 
 
-// 模块 11：调度器（Scheduler）
+// 模块：调度器（Scheduler）
 // 作用：管理有界等待队列、唯一的推理 worker 和运行指标。
 // 有界 FIFO 调度：先到先服务，从队头取任务；HTTP 并发再高，也不会增加模型解码的 worker 数量。
 // 加锁顺序约定：涉及两把锁时，必须先拿 Scheduler 锁，再拿 Job 锁，所有代码都遵守，才能避免死锁。
 // 耗时的推理过程不持有 Scheduler 锁，否则别的请求连提交都会被卡住。
-
-
 class Scheduler {
     Config config_;
     std::unique_ptr<Engine> engine_;
@@ -253,11 +234,9 @@ class Scheduler {
     size_t queue_peak_ = 0;                            // 队列历史最高长度，用来判断容量够不够
 
 
-    // 模块 12：有界观测
+    // 有界观测
     // 作用：用固定的"桶"累计成功请求的耗时分布，不保存每个请求的明细，所以内存不会随运行时间无限增长。
     // 通俗讲：不记每个人的成绩，只记"0~1 秒有几人、1~2 秒有几人"，占用空间永远固定。
-
-
     Histogram queue_seconds_, execution_seconds_, first_output_seconds_;
     Histogram prefill_seconds_, decode_seconds_;
     // 累计的提示词 token 数、输出 token 数、被缓存复用的 token 数

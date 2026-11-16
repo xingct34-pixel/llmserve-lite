@@ -1,6 +1,7 @@
 // LLMServe-Lite 本地推理服务 | bench/prefix_numerics.cpp
-// 独立诊断程序。给同一个模型设置几组上下文，分别改变提示词分块方式和前缀复用方式，
+// 功能：独立诊断程序。给同一个模型设置几组上下文，分别改变提示词分块方式和前缀复用方式，
 // 在相同后续 token 下比较模型给词表打的原始分数（logits）。这样能区分文本碰巧相同与分数真的相同。
+// 目的：定位同一输入出现数值差异时，是在哪种分块、复用或后续解码条件下发生的。
 //
 // 阅读顺序：准备提示词 → 运行受控预填充 → 对齐解码步骤并比较数值。
 
@@ -15,10 +16,8 @@
 namespace {
 
 
-// 模块 1：提示词准备
+// 模块：提示词准备（tokenize）
 // 功能：使用与服务一致的聊天模板和真实tokenizer，不用字符数冒充分词
-
-
 std::vector<llama_token> tokenize(llama_model* model, const std::string& text) {
     llama_chat_message message{"user", text.c_str()};
     std::vector<char> buffer(4096);
@@ -38,10 +37,8 @@ std::vector<llama_token> tokenize(llama_model* model, const std::string& text) {
 }
 
 
-// 模块 2：受控Prefill
+// 模块：受控Prefill（feed）
 // 功能：显式改变分块方式，其他上下文参数保持一致
-
-
 void feed(llama_context* context, std::vector<llama_token>& tokens, int start, int chunk = 128) {
     for (int index = start; index < int(tokens.size()); index += chunk)
         if (llama_decode(context,
@@ -51,20 +48,16 @@ void feed(llama_context* context, std::vector<llama_token>& tokens, int start, i
 }
 
 
-// 模块 3：数值比较
+// 模块：数值比较（compare）
 // 功能：比较完整logits向量和归一化KL，不只检查生成文本是否非空
-
-
 serve::Json compare(const float* reference, const float* candidate, int count) {
     double maximum = 0, square_sum = 0, reference_sum = 0, candidate_sum = 0;
     const auto ri = int(std::max_element(reference, reference + count) - reference);
     const auto ci = int(std::max_element(candidate, candidate + count) - candidate);
 
 
-    // 模块 4：数值检查
+    // 数值检查
     // 先排除无穷大与 NaN，再算最大绝对差；否则异常值可能破坏整组分数的比较。
-
-
     for (int index = 0; index < count; index++) {
         if (!std::isfinite(reference[index]) || !std::isfinite(candidate[index]))
             throw std::runtime_error("non-finite logits");
@@ -92,10 +85,8 @@ serve::Json compare(const float* reference, const float* candidate, int count) {
 }
 
 
-// 模块 5：因果对照
+// 模块：因果对照（main）
 // 功能：无跨请求缓存的分块、原缓存路径与相同形状的因果前缀参考分别对比
-
-
 int main(int argc, char** argv) {
     try {
         if (argc != 2)
@@ -156,10 +147,9 @@ int main(int argc, char** argv) {
         int split_argmax_differences = 0, cache_argmax_differences = 0;
 
 
-        // 模块 6：对齐每一步
+        // 对齐每一步
         // 对照上下文继续吃相同后续 token，才能把当前差异定位到前缀处理，而不是不同回答越走越远。
-
-
+        // 若两组在第 1 步选了不同 token，第 2 步的输入已经不同，分数差异就很难归因。让两边继续吃同一个 token，才是在比较缓存和分块策略的影响。
         for (int step = 0; step < 16; step++) {
             // 取最后一个位置对整个词表的预测分数。即使两组最高分对应同一 token，其他分数也可能已经不同。
             auto full = llama_get_logits_ith(contexts[0].get(), -1);
