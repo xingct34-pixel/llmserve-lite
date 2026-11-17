@@ -1,42 +1,43 @@
 // LLMServe-Lite 本地推理服务 | include/serve.hpp
-// 功能：LLMServe-Lite 把本地语言模型包装成 HTTP 服务。这个头文件定义接入、调度、生成之间的接口。
-// 可以跟着一个 Job 读：main.cpp 收到请求，core.cpp 把它交给 worker，
-// engine.cpp 生成文字，HTTP 线程再从同一个 Job 取出文字，返回给客户端。
+// 功能：LLMServe-Lite 把本地语言模型包装成 HTTP 服务。这个头文件主要声明接口，也含少量内联实现，
+//       定义接入、调度、生成之间约定的数据结构，相当于整套系统的"设计图"。
 // 目的：约定一次请求从 HTTP、等待队列、引擎到响应端传递哪些数据，以及谁持有任务状态。
 //
 // 阅读顺序：配置与请求格式 → 引擎接口 → 单请求的事件与终态（Job） → 多请求的排队和统计（Scheduler）。
-
-
-// `serve.hpp` 是整个本地 LLM 推理服务的核心头文件，
-// 主要声明接口，也包含少量内联实现，相当于整套系统的"设计图"。
-// 它定义了服务里所有核心的数据结构和接口，具体实现分散在其他文件中：
-// `core.cpp` 负责 Config 加载以及 Job、Scheduler 的实现，
-// `engine.cpp` 提供 MockEngine 和 LlamaEngine，
-// `main.cpp` 负责 HTTP 路由和启动退出。
-
-// 头文件定义了四类核心对象：
-// **Config** 集中管理线程数、队列容量、超时和上下文长度等资源参数，并限定在低内存机器可承受的范围内；
-// **Engine** 是统一的引擎抽象接口，Mock 模拟引擎和 llama.cpp 真实引擎都按它实现；
-// **Job** 代表单个请求的生命周期，内部带有有界事件缓冲区，
-// 用 `mutex` 和 `condition_variable` 做线程同步，
-// 支持协作式取消与背压处理；
-// **Scheduler** 是有界 FIFO 调度器，
-// 固定只有 1 个推理 worker，其余请求排队，队列满了直接拒绝，
-// 并用 `Histogram` 固定桶统计排队、首字、prefill、decode 等耗时。
-
-// 一个请求的流转路径是：
-// HTTP 线程收到请求并校验，交给 Scheduler 排队，
-// 由唯一的 worker 线程取出，调用 Engine 生成文字，
-// 文字通过 Job 的缓冲区传回 HTTP 线程，再返回给客户端。
-
+//
+// 文件分工：
+//   serve.hpp   本文件，声明所有核心类型
+//   core.cpp    Config 加载，Job 和 Scheduler 的实现
+//   engine.cpp  MockEngine（模拟引擎）和 LlamaEngine（llama.cpp 真实引擎）
+//   main.cpp    HTTP 路由，启动和退出
+//
+// 四类核心对象：
+//   Config     集中管理线程数、队列容量、超时和上下文长度等资源参数
+//   Engine     统一的引擎抽象接口，模拟引擎和真实引擎都按它实现
+//   Job        一个请求的生命周期，内部有容量固定的事件缓冲区，用 mutex 和 condition_variable 做线程同步，
+//              支持协作式取消（引擎自己定期检查是否该停）和背压（客户端读得慢时，生成端要等一等）
+//   Scheduler  有界 FIFO 调度器：固定只有 1 个推理 worker，其余请求排队，队列满了直接拒绝，
+//              并用 Histogram 的固定桶统计排队、首字、prefill、decode 等耗时
+//
+// 一个请求的流转路径：
+//   HTTP 线程收到请求并校验 → 交给 Scheduler 排队 → 唯一的 worker 线程取出，调用 Engine 生成文字
+//   → 文字放进 Job 的缓冲区 → HTTP 线程从同一个 Job 里取出 → 返回给客户端。
+//
 // 通俗地说，这是一家只有一个厨师的餐厅：
-// HTTP 线程是服务员，数量多，负责接待客人和端菜；
-// Scheduler 是座位有限的订单队列，满了就拒绝新客人；
-// Engine 是厨师，同一时刻只做一道菜；
-// Job 是一张订单，同时也是出菜口的传菜窗口，厨师做一点放一点，服务员取一点端一点，从而实现 SSE 流式输出。
-
-// 这里选择单 worker 以复用一个模型上下文并限制内存占用。多 worker 的收益要在目标硬件上实测。
-// 整体设计思路是"处处有界，过载时拒绝而不是崩溃"。
+//   HTTP 线程是服务员，数量多，负责接待客人和端菜；
+//   Scheduler 是座位有限的订单队列，满了就拒绝新客人；
+//   Engine 是厨师，同一时刻只做一道菜；
+//   Job 是一张订单，同时也是出菜口：厨师做一点放一点，服务员取一点端一点，这就是 SSE 流式输出
+//   （SSE：服务器一段一段主动推送文字，所以客户端能边生成边显示）。
+//
+// 设计取舍：选择单 worker，是为了复用一个模型上下文并限制内存占用；多 worker 是否更快，要在目标硬件上实测。
+// 整体思路是"处处有界，过载时拒绝而不是崩溃"。
+//
+// 待核对（头文件里看不出来，需要对照实现确认）：
+//   1. "限定在低内存机器可承受的范围内"：范围限制是否真的写在 Config::load（core.cpp）里
+//   2. 两把锁的顺序、推理时不持有 Scheduler 锁：是否与 core.cpp 的实际写法一致
+//   3. 直方图是否只统计成功的请求：看 Scheduler::run
+//   4. prompt_prepare_ms 具体指分词还是套模板：看 engine.cpp
 
 
 #pragma once
@@ -44,6 +45,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -62,14 +64,15 @@ using Clock = std::chrono::steady_clock;
 
 
 // 模块：字段校验（is_int）
-// 作用：判断一个 JSON 值是不是整数，并且能否安全放进 32 位 int，防止溢出后变成错误的值。
+// 功能：判断一个 JSON 值是不是整数，并且能否安全放进 32 位 int。
+// 目的：防止过大的数字溢出后变成错误的值。
 // 通俗讲：用户传来的数字可能大得离谱（比如 max_tokens 填一个 100 位的数），先检查装不装得下。
 inline bool is_int(const Json& j) {
     // 不是整数（比如小数、字符串）直接不合格
     if (!j.is_number_integer())
         return false;
-    // 无符号整数只需检查上限，因为它不可能为负
-    // 无符号数先与 int 的上界比较再转换。大数若先转 int，可能已经失去原值，范围检查也就没意义了。
+    // 无符号整数不可能为负，只需检查上限；
+    // 并且要先和 int 的上界比较再转换，大数若先转成 int，可能已经失去原值，范围检查就没意义了。
     if (j.is_number_unsigned())
         return j.get<uint64_t>() <= uint64_t(std::numeric_limits<int>::max());
     // 有符号整数要同时检查上下限
@@ -79,20 +82,23 @@ inline bool is_int(const Json& j) {
 
 
 // 模块：服务配置（Config）
-// 作用：集中声明计算、队列、HTTP 和超时相关的所有参数，并给出默认值。
+// 功能：集中声明计算、队列、HTTP 和超时相关的所有参数，并给出默认值。
+// 目的：让所有资源上限都有明确的数字，过载时按这些数字拒绝，而不是无限占用内存。
 // 资源参数分三层：
-//   threads       —— 模型做计算用的 CPU 线程数
-//   http_threads  —— 负责接待网络连接的线程数
-//   推理 worker   —— 固定只有 1 个，同一时刻只跑一个请求
+//   threads       模型做计算用的 CPU 线程数
+//   http_threads  负责接待网络连接的线程数
+//   推理 worker   固定只有 1 个，同一时刻只跑一个请求（不是配置项）
 // queue_capacity 限制"排队等待推理"的请求数；event_capacity 限制每个请求"还没被客户端读走"的文本事件数。
 // context_tokens 要装下"套完模板的提示词 + 预留的生成长度"；max_output_tokens 只限制新生成的部分。
-// 通俗讲：像一家只有 1 个厨师的餐厅，threads 是厨师的手数，http_threads 是服务员数量，queue_capacity 是等位座位数。
+// 通俗讲：threads 是厨师的手数，http_threads 是服务员数量，queue_capacity 是等位座位数。
 struct Config {
     // engine：引擎类型（mock 为模拟引擎，方便测试）；host：监听地址，默认只允许本机访问；model_path：模型文件路径
     std::string engine = "mock", host = "127.0.0.1", model_path;
-    // port：端口；context_tokens：上下文窗口大小；max_output_tokens：单次最多生成多少 token
+    // port：端口；threads：模型计算用的 CPU 线程数；
+    // context_tokens：上下文窗口大小；max_output_tokens：单次最多生成多少 token
     int port = 8080, threads = 4, context_tokens = 1024, max_output_tokens = 128;
-    // queue_capacity：等待队列容量，满了就拒绝新请求；event_capacity：单请求的输出缓冲上限
+    // queue_capacity：等待队列容量，满了就拒绝新请求；http_threads：接待网络连接的线程数；
+    // event_capacity：单请求的输出缓冲上限
     int queue_capacity = 4, http_threads = 8, event_capacity = 16;
     // queue_timeout_ms：排队最长等待时间；generation_timeout_ms：生成阶段最长执行时间
     int queue_timeout_ms = 30000, generation_timeout_ms = 120000;
@@ -101,25 +107,28 @@ struct Config {
 
 
     // 可选前缀缓存
-    // 作用：0 表示关闭；开启后，只复用本进程上一条成功请求中相同的 token 前缀。
+    // 功能：0 表示关闭；开启后，只复用本进程上一条成功请求中相同的 token 前缀。
+    // 目的：省掉重复的 prefill 计算。
     // 通俗讲：如果两个请求开头一模一样（比如相同的系统提示词），开头那段就不用重新算了。
     int prefix_cache_tokens = 0;
 
 
     // 排队预算
-    // 作用：限制所有"等待中"请求的 max_tokens 之和，0 表示关闭。它只是排队负载的上限，不代表 KV 缓存占多少内存。
+    // 功能：限制所有"等待中"请求的 max_tokens 之和，0 表示关闭。
+    // 说明：它只是排队负载的上限，不代表 KV 缓存占多少内存。
     int queued_output_budget = 0;
 
 
-    // 从指定路径加载配置（实现在别处）
+    // 从指定路径加载配置（实现在 core.cpp）
     static Config load(const std::string&);
 };
 
 
 // 模块：请求数据（Request）
-// 作用：保存一次请求的提示词、输出长度上限，以及是否流式返回。
-// Request 存这次要生成什么，Job 再为它加上提交时间、取消状态和输出队列。HTTP 解析完字段就能构造 Request；跨线程跟踪这次生成时才需要 Job。
-// 每个 HTTP 请求各有 prompt 和 max_tokens；进程启动配置由许多请求共享。实际把 JSON 填进 Request 的代码在 main.cpp。
+// 功能：保存一次请求的提示词、输出长度上限，以及是否流式返回。
+// 目的：Request 只存"这次要生成什么"。Job 在它外面再加提交时间、取消状态和输出队列，用来跨线程跟踪这次生成。
+// 说明：HTTP 解析完字段就能构造 Request，填充代码在 main.cpp。
+//       每个 HTTP 请求各有自己的 prompt 和 max_tokens，进程启动时的 Config 则被所有请求共享。
 struct Request {
     std::string prompt;        // 用户提示词
     int max_tokens = 128;      // 本次最多生成多少个 token
@@ -128,7 +137,8 @@ struct Request {
 
 
 // 模块：生成统计（Generation）
-// 作用：保存 token 数量、结束原因和引擎各阶段耗时。
+// 功能：保存 token 数量、结束原因和引擎各阶段耗时。
+// 目的：引擎生成完后把这些数据交回去，Scheduler 据此更新累计指标。
 struct Generation {
     int prompt_tokens = 0, output_tokens = 0;
     // 结束原因：length 表示达到长度上限，另外也可能是自然结束(stop)等
@@ -138,18 +148,19 @@ struct Generation {
 
 
     // 真实计算口径
-    // 作用：把"准备耗时""真正的 prefill 计算耗时""被缓存复用而没重算的输入 token 数"分开记录，
-    //       这样开了前缀缓存后，统计才不会虚高或虚低。
+    // 功能：把"准备耗时""真正的 prefill 计算耗时""被缓存复用而没重算的输入 token 数"分开记录。
+    // 目的：开了前缀缓存后，统计不会虚高或虚低。
     double prompt_prepare_ms = 0, prefill_compute_ms = 0;
     int cached_prompt_tokens = 0;
 };
 
 
 // 模块：引擎接口（Engine）
-// 作用：定义统一的生成接口，Mock 引擎和 llama.cpp 引擎都按此实现，上层调度器不用关心具体是哪个。
+// 功能：定义统一的生成接口，模拟引擎和 llama.cpp 引擎都按此实现。
+// 目的：Scheduler 通过这个接口调用生成，不用关心具体是哪种引擎。
 // 通俗讲：像插座标准，不管插的是哪种电器，墙上的插座都一样。
-// 生成过程中 emit 交出一段完整文字，stop 查询是否应结束。把这两个动作作为回调传入，引擎就能配合取消和慢客户端，而无需知道 HTTP 连接怎么写。
-// Scheduler 只依赖 Engine。它把“把字送到 Job”和“是否该停”作为调用参数交给 generate。
+// 说明：生成过程中，emit 用来交出一段完整文字，stop 用来查询是否该结束。
+//       这两个动作以回调的形式传进来，引擎就能配合取消和慢客户端，而不必知道 HTTP 连接怎么写。
 class Engine {
 public:
     // 虚析构：保证通过基类指针删除子类对象时，子类的资源也能正确释放
@@ -161,17 +172,18 @@ public:
     virtual Generation generate(const Request&,
                                 const std::function<bool(const std::string&)>&,
                                 const std::function<bool()>&) = 0;
-    // 返回引擎名称，只读；HTTP 指标接口也会读取它
+    // 返回引擎名称，只读（待核对：HTTP 指标接口是否会读取它）
     virtual std::string name() const = 0;
 };
 
 
-// 模块：辅助接口（make_engine）
-// 作用：声明引擎工厂、UTF-8 处理、日志和计时函数，具体实现在其他文件。
+// 模块：辅助接口（make_engine 等）
+// 功能：声明引擎工厂、UTF-8 处理、日志和计时函数，具体实现在其他文件。
+// 目的：把这些零散的工具函数集中放在一处，调用方只需包含本头文件。
 // 根据配置创建对应的引擎（mock 或 llama.cpp）
 std::unique_ptr<Engine> make_engine(const Config&);
 // 取出缓冲区里"完整的 UTF-8 字符"。
-// 通俗讲：例如“中”的 UTF-8 编码占 3 个字节，token 可能只输出了半个字，直接发出去会乱码，所以先攒够再发；
+// 通俗讲：例如"中"的 UTF-8 编码占 3 个字节，token 可能只输出了半个字，直接发出去会乱码，所以先攒够再发；
 // flush 为 true 时表示结尾了，剩余的全部取出
 std::string complete_utf8(std::string&, bool flush = false);
 // 输出一条 JSON 格式的日志
@@ -181,11 +193,11 @@ double millis(Clock::time_point a, Clock::time_point b);
 
 
 // 模块：任务状态（Job）
-// 作用：管理单个请求的整个生命周期：输出缓冲、取消、结束状态。
-// 一个请求对应一个 Job。它用 shared_ptr 管理，这样 HTTP 处理线程、推理 worker、SSE 回调
-// 谁最后用完谁负责释放，不会出现某个线程还在用、对象却被销毁的情况。
-// cancelled 是原子变量，用来跨线程发"停止"信号；取消原因、运行状态和事件队列仍由 mutex 保护。
-// 每次请求一个 Job。共享的是同一份状态，因此 HTTP 线程取事件的同时，worker 能在另一端继续放入事件。
+// 功能：管理单个请求的整个生命周期：输出缓冲、取消、结束状态。
+// 目的：HTTP 线程取事件的同时，worker 能在另一端继续放入事件，两边共享同一份状态。
+// 说明：一个请求对应一个 Job，用 shared_ptr 管理，这样 HTTP 处理线程、推理 worker、SSE 回调
+//       谁最后用完谁负责释放，不会出现某个线程还在用、对象却被销毁的情况。
+//       cancelled 是原子变量，用来跨线程发"停止"信号；取消原因、运行状态和事件队列仍由 mutex 保护。
 struct Job {
     const std::string id;                              // 请求唯一编号
     const Request request;                             // 请求内容，创建后不可修改
@@ -206,7 +218,8 @@ struct Job {
     explicit Job(std::string, Request, const Config&);
     void cancel(const std::string& reason);            // 请求取消
     bool stopped();                                    // 是否已被取消或超时
-    bool emit(const std::string& text);                // 引擎往缓冲区推送一段文本，缓冲满会等待
+    // 引擎往缓冲区推送一段文本；缓冲满时最多等 backpressure_timeout_ms，超时就按取消处理
+    bool emit(const std::string& text);
     void finish(const Json& event);                    // 标记结束并写入终态事件
     std::optional<Json> next();                        // 消费者取下一个事件，全部取完返回空
     bool await_start();                                // 等待任务开始执行
@@ -214,10 +227,10 @@ struct Job {
 
 
 // 模块：调度器（Scheduler）
-// 作用：管理有界等待队列、唯一的推理 worker 和运行指标。
-// 有界 FIFO 调度：先到先服务，从队头取任务；HTTP 并发再高，也不会增加模型解码的 worker 数量。
-// 加锁顺序约定：涉及两把锁时，必须先拿 Scheduler 锁，再拿 Job 锁，所有代码都遵守，才能避免死锁。
-// 耗时的推理过程不持有 Scheduler 锁，否则别的请求连提交都会被卡住。
+// 功能：管理有界等待队列、唯一的推理 worker 和运行指标。
+// 目的：先到先服务，从队头取任务；HTTP 并发再高，也不会增加模型解码的 worker 数量。
+// 加锁顺序约定：涉及两把锁时，先拿 Scheduler 锁，再拿 Job 锁，所有代码都遵守，才能避免死锁。
+// 耗时的推理过程不持有 Scheduler 锁，否则别的请求连提交都会被卡住。（以上两条待核对 core.cpp）
 class Scheduler {
     Config config_;
     std::unique_ptr<Engine> engine_;
@@ -235,7 +248,8 @@ class Scheduler {
 
 
     // 有界观测
-    // 作用：用固定的"桶"累计成功请求的耗时分布，不保存每个请求的明细，所以内存不会随运行时间无限增长。
+    // 功能：用固定的"桶"累计请求的耗时分布，不保存每个请求的明细。
+    // 目的：内存不会随运行时间无限增长。（是否只统计成功请求，待核对）
     // 通俗讲：不记每个人的成绩，只记"0~1 秒有几人、1~2 秒有几人"，占用空间永远固定。
     Histogram queue_seconds_, execution_seconds_, first_output_seconds_;
     Histogram prefill_seconds_, decode_seconds_;
@@ -252,4 +266,4 @@ public:
     void stop();                                       // 停止调度器
     Json metrics() const;                              // 导出当前运行指标
 };
-}
+}  // namespace serve
